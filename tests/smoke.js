@@ -7,8 +7,8 @@ const { chromium } = require('playwright-core');
   await pg.goto('http://127.0.0.1:' + port + '/');
   await pg.click('#btnPhantom'); await pg.waitForTimeout(500);
   await pg.click('#btnDemoMarkers'); await pg.waitForTimeout(800);
-  await pg.screenshot({ path: '../screenshots/dbg_mark.png' });
-  for (const t of ['transfer', 'carm', 'summary']) { await pg.click(`#tabs button[data-tab=${t}]`); await pg.waitForTimeout(800); await pg.screenshot({ path: `../screenshots/dbg_${t}.png`, fullPage: true }); }
+  await pg.screenshot({ path: 'out/dbg_mark.png' });
+  for (const t of ['transfer', 'carm', 'summary']) { await pg.click(`#tabs button[data-tab=${t}]`); await pg.waitForTimeout(800); await pg.screenshot({ path: `out/dbg_${t}.png`, fullPage: true }); }
   console.log(errs.join('\n') || 'no console errors');
   await b.close();
 })();

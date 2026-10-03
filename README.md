@@ -7,7 +7,7 @@
 > ### Quick start
 > * **Open it:** download/clone and open **`index.html`** (single self-contained file, works from `file://`), or `node serve.js` and open the printed `http://127.0.0.1:<port>/`. The `index.html` committed here is the built app (also attached to the GitHub release).
 > * **Build:** `node build.js` inlines `src/` (CSS + JS) into `index.html` (Node ≥ 18, no npm dependencies for the build).
-> * **Test:** `npm install` (installs `playwright-core` for the browser tests; needs system Google Chrome at `/usr/bin/google-chrome`), start `node serve.js`, then `bash tests/run_all.sh` (builds, generates synthetic DICOM test data, runs the unit and headless-Chrome tests, writes `tests/results.txt`). Unit tests alone: `node tests/test_math.js`, `test_dicom.js`, `test_mpr.js`, `test_codecs.js`, `test_nadir.js` (~1 min). The independent JPEG/DICOM oracle checks (`tests/verify_jpeg_cases.py`, `make_compressed_series.py`) need a Python venv in `tests/out/venv` with `imagecodecs`, `pydicom`, `pylibjpeg-libjpeg` and are skipped/fail if it is absent.
+> * **Test:** see [Running the tests](#running-the-tests) – setup is `npm install` + a Python venv, then `bash tests/run_all.sh` (starts/stops its own server; exits non-zero if anything fails).
 > * Layout: `src/js/` (`math`, `volume`, `codecs`, `dicom`, `nadir`, `mpr`, `phantom`, `views`, `app`), `src/css/`, `src/index.template.html`, `tests/`, `screenshots/`.
 
 Client-side, dependency-free web app that implements the *Navitor Vision commissural alignment protocol from CT* (manual
@@ -125,19 +125,37 @@ Across the six unit cases: angle error mean ≈ 1.2°, worst 3.5°; 3D position 
 * Lateral offset *s* of each A marker = signed distance (mm) from the projected centreline axis at the descending level (+ = image right). A view is **2:1** when the signs split 2 vs 1; **margin** = min |s| (nearest marker to the axis); **gap** = distance between the single marker and the nearest pair marker. Valid if margin ≥ the configurable minimum (default 2 mm). Ranked lists use margin (S) and angle burden (P).
 * For an axis along z the margin does not depend on the cranial angle (rings project identically) – the heat map then shows vertical bands; real descending-aorta tilt breaks this.
 
-## Tests (results in `tests/results.txt`, screenshots in `screenshots/`)
+## Tests
 
-`bash tests/run_all.sh` (needs the static server running for the e2e part). Latest run: **13 maths + 8 DICOM/geometry + 8 oblique-MPR + 11 codec + 17 nadir/commissure auto-detect + 51 headless-Chrome checks, all passed** (see `tests/results.txt`).
+### Running the tests
+
+Requirements: Node ≥ 18, Python 3 (with `venv`), system Google Chrome (`/usr/bin/google-chrome`), and poppler-utils (`pdftoppm`, `pdfinfo`, `pdftotext`; e.g. `apt install poppler-utils`).
+
+```bash
+# one-time setup, from the repository root
+npm install                                   # playwright-core only (drives the system Chrome; no browser download)
+python3 -m venv tests/out/venv                # Python oracles: independent JPEG / DICOM decoders
+tests/out/venv/bin/pip install numpy pydicom imagecodecs pylibjpeg pylibjpeg-libjpeg
+
+# run everything (build, unit tests, Python oracle checks, headless-Chrome e2e)
+bash tests/run_all.sh                          # or: npm test
+```
+
+`tests/run_all.sh` starts its own static server on a free port for the e2e step and stops it afterwards – you do **not** need to run `node serve.js` first. It runs every step even if an earlier one fails, prints a PASS/FAIL summary table at the end, and **exits non-zero if any step failed** (including the Python oracle steps; a missing venv counts as a failure). The full run takes about 2 minutes.
+
+Everything the tests generate is untracked and lives under `tests/out/` (log: `tests/out/results.txt`, per-step logs: `tests/out/steps/`, e2e screenshots: `tests/out/screenshots/`), so a test run leaves `git status` clean. The committed images in `screenshots/` are reference screenshots of the phantom; refresh them deliberately with `NVAP_SHOTS=screenshots bash tests/run_all.sh`. Unit tests alone (no browser, no venv): `node tests/test_math.js`, `test_dicom.js`, `test_mpr.js`, `test_codecs.js`, `test_nadir.js` (~1 min).
+
+Last full run: **13 maths + 8 DICOM/geometry + 8 oblique-MPR + 11 codec + 17 nadir/commissure auto-detect + 51 headless-Chrome checks, plus both Python oracle checks (0 mismatches), all passed.**
 
 * `tests/test_math.js` – beam/image-basis geometry; straight-axis ring with 0/120/240° markers → AP is 2:1 with 6 mm margin; **known rotation → known angle** (rotate markers 25° → best LAO = 25° and −35°, margin = ρ/2, independent of CRAN); **tilted axis constructed so LAO 8°/CRAN 19° is the exact 2:1 optimum → recovered**; fast plane-based evaluation vs explicit 2D projection agree (signed offsets, side, class; 2000 random cases); RMF orthonormal and twist-free on a helix; angle transfer on a planar arc preserves the Frenet-relative angle; invariance to the RMF start vector; ranking/NMS properties.
 * `tests/test_dicom.js` – synthetic phantom → DICOM (explicit VR, implicit VR, deflated; shuffled slice order; undefined-length sequences; a fake patient name that must never be read) → parsed volume voxel-identical; ZIP (deflate/stored); oblique IOP + anisotropic PixelSpacing reproduce a linear field at arbitrary patient points; unsupported codec (JPEG 2000) rejected cleanly.
 * `tests/test_nadir.js` – auto-detect (nadirs + commissures) on synthetic root phantoms: accuracy tables above, commissure angle/position/height errors, H-label rotation algebra, ambiguity lowers confidence, label correctness/handedness, seed off-axis, axis hint, `rotateLabels` algebra, and 6 failure modes (air, soft tissue, calcification seed, LA blob, tube phantom with no sinuses, null inputs). Takes ≈ 1 min (phantom generation).
 * `tests/test_codecs.js` – decoders: 252 lossless-JPEG streams (8/12/16-bit, predictors 1–7, point transform 0/2, restart intervals, long Huffman codes) sample-identical to the source; compressed phantom DICOM series (JPEG Lossless SV1 `.70` uint16 with basic offset table + 3 fragments, Process 14 `.57` signed 12-bit multi-fragment without offset table, RLE Lossless, JPEG Baseline 8-bit) → volume voxel-identical to the uncompressed volume (baseline: ≤1 stored level vs libjpeg-turbo); corrupted data → per-slice error; ~2,400-file mixed folder (6 listed series, RGB secondary captures, no-geometry, no-pixel, text) → grouping, skipping, pre-selection, timing.
-* Independent oracles (`tests/verify_jpeg_cases.py`, `tests/make_compressed_series.py`, venv in `tests/out/venv` with imagecodecs, pydicom, pylibjpeg-libjpeg): the *encoders* used for test data are not mine for the DICOM series (imagecodecs / pydicom), and the JS test encoder's streams are decoded identically by Richter libjpeg (all Pt=0 cases) and libjpeg-turbo 3.2 (all 8-bit cases incl. point transform).
+* Independent oracles (`tests/verify_jpeg_cases.py`, `tests/make_compressed_series.py`, venv in `tests/out/venv` with numpy, pydicom, imagecodecs, pylibjpeg, pylibjpeg-libjpeg): the *encoders* used for test data are not mine for the DICOM series (imagecodecs / pydicom), and the JS test encoder's streams are decoded identically by Richter libjpeg (all Pt=0 cases) and libjpeg-turbo 3.2 (all 8-bit cases incl. point transform).
 * `tests/e2e.js` (playwright-core + system Chrome) – loads the app from the local server and from `file://`; DICOM zip via the real file input and synthetic drop; real mouse clicks place 17 centreline + 3 H + 3 nadir markers on the axial view (within 1.2 mm of the phantom's truth); transferred angle equals H angle; A markers within 0.6–1.6 mm of the phantom's analytic truth; whole 121×81 grid cross-checked against brute-force explicit projection; best-ranked view verified 2:1 by independent projection; heat-map click, drag of A marker, reset, level slider, Alt+click delete, wheel slice scroll; summary text (no name/ID leakage) and print-to-PDF = exactly 1 A4 page; session JSON round trip; **no external network requests; no JS errors.**
 * `node tests/make_sample_dicom.js` writes the phantom as DICOM (`tests/out/phantom_dicom/`, `.zip`) so you can test the file-loading path.
 
-Screenshots: `01_load_dicom_zip`, `02_mark_mpr`, `03_transfer`, `04_carm`, `05_summary`, `06_summary_print-1.png` (the print-to-PDF file is regenerated by the e2e test and not committed), `07_help`, `08_phantom_mark_filescheme`, `11_auto_nadirs` (auto-detected nadirs + commissures on the root phantom), `12_oblique_rotated`, `13_oblique_double`, `14_oblique_align_centreline` (oblique MPR).
+Screenshots: `01_load_dicom_zip`, `02_mark_mpr`, `03_transfer`, `04_carm`, `05_summary`, `06_summary_print-1.png` (the print-to-PDF file is regenerated by the e2e test and not committed; the e2e writes its own copies to `tests/out/screenshots/`), `07_help`, `08_phantom_mark_filescheme`, `11_auto_nadirs` (auto-detected nadirs + commissures on the root phantom), `12_oblique_rotated`, `13_oblique_double`, `14_oblique_align_centreline` (oblique MPR).
 
 ## Limitations (please read)
 

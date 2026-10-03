@@ -2,8 +2,8 @@
 const { chromium } = require('playwright-core');
 const fs = require('fs'), path = require('path'), cp = require('child_process');
 const { test, near, ok, summary } = require('./harness.js');
-const root = path.join(__dirname, '..'), shots = path.join(root, 'screenshots');
-const port = fs.readFileSync(path.join(root, '.port'), 'utf8').trim();
+const root = path.join(__dirname, '..'), shots = process.env.NVAP_SHOTS ? path.resolve(process.env.NVAP_SHOTS) : path.join(root, 'tests', 'out', 'screenshots'); // default: untracked; NVAP_SHOTS=screenshots refreshes the committed reference images
+const port = process.env.NVAP_PORT || fs.readFileSync(path.join(root, '.port'), 'utf8').trim(); // run_all.sh starts its own server and passes NVAP_PORT
 const W = require('./dicomwriter.js'), PH = require('../src/js/phantom.js');
 fs.mkdirSync(shots, { recursive: true });
 if (!fs.existsSync(path.join(__dirname, 'out', 'phantom_dicom.zip'))) cp.execSync('node make_sample_dicom.js', { cwd: __dirname });

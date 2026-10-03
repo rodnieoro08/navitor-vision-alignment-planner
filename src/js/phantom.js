@@ -1,11 +1,11 @@
-/* NavPhantom: synthetic CT-like phantom (contrast-filled aorta tube from "bifurcation" to "apex" with an arch,
+/* NavPhantom: synthetic CT-like phantom (contrast-filled aorta tube from the descending end ("bifurcation") to the LV "apex" with an arch (its internal truth centreline runs descending -> apex; demoCtrl() returns the app's marking order apex -> descending),
  * aortic root with three commissure nodules and three nadir nodules). No patient data. */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory(require('./math.js'));
   else root.NavPhantom = factory(root.NavMath);
 })(typeof self !== 'undefined' ? self : this, function (M) {
   'use strict';
-  // control points bifurcation -> apex, LPS mm
+  // internal control points descending end -> apex, LPS mm
   const CTRL = [[28, 52, -210], [28, 52, -120], [30, 48, -30], [31, 42, 50], [30, 32, 110], [22, 14, 145], [4, 0, 152], [-14, -6, 135],
     [-22, -12, 105], [-24, -16, 70], [-24, -18, 35], [-22, -18, 5], [-12, -14, -30], [6, -10, -65], [22, -4, -95]];
   const COMM_DEG = { NR: 35, NL: 155, LR: 275 };      // commissure angular positions about the root centreline (RMF, from N1 toward N2)
@@ -54,7 +54,8 @@
       volume: { dims, data, origin, vi: [sp, 0, 0], vj: [0, sp, 0], vk: [0, 0, sp], info: { desc: 'Synthetic phantom (no patient data)', modality: 'PHANTOM', slices: nz, rows: ny, cols: nx, downsample: 1, pixelSpacing: [sp, sp], sliceStep: sp }, warnings: [] },
       truth: { ctrl: CTRL.map((q) => q.slice()), H, nadir, commDeg: COMM_DEG, cuspDeg: CUSP_DEG, sRoot, centreline: cl, length: L, radius: rad,
         /* default demo control points: every ~40 mm of arc length, always including both ends */
-        demoCtrl() { const n = Math.round(L / 40), out = []; for (let i = 0; i <= n; i++) out.push(M.frameAt(cl, L * i / n).C); return out; } }
+        // app marking order: LV apex first -> root -> arch -> descending aorta (the phantom's own centreline runs the other way)
+        demoCtrl() { const n = Math.round(L / 40), out = []; for (let i = 0; i <= n; i++) out.push(M.frameAt(cl, L * (n - i) / n).C); return out; } }
     };
   }
   /* ---------- aortic-root phantom: three bulging sinuses of Valsalva with known cusp nadirs (for testing the nadir detector) ----------

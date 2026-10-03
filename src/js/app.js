@@ -60,20 +60,20 @@
   }
 
   /* ---------------- computation ---------------- */
-  function defaultDescLevel(cl) {
-    let zi = 0; for (let i = 0; i < cl.pts.length; i++) if (cl.pts[i][2] > cl.pts[zi][2]) zi = i;
-    return Math.min(Math.max(cl.s[zi] - 80, 0.15 * cl.length), 0.9 * cl.length);
-  }
+  function rootPoints() { return [...HK.map((k) => S.m.H[k]), ...GROUPS.nadir.keys.map((k) => S.m.nadir[k]), S.seed].filter(Boolean); }
   function update() {
     const p = S.p;
-    S.cl = S.m.cl.length >= 2 ? M.buildCentreline(S.m.cl, { smoothMm: p.smoothMm, step: 0.5 }) : null; S.clVer++;
+    // centreline order: protocol = first point at the LV apex ... last point in the descending aorta. The order is checked against the root markers
+    // (or height as a fallback) and, if it is reversed, the points are used in the canonical order for ALL computations, so the results do not depend on the entry direction.
+    const oc = S.m.cl.length >= 2 ? M.orientCentreline(S.m.cl, rootPoints()) : null; S.clOrd = oc ? oc.check : null; S.clRev = !!(oc && oc.reversed);
+    S.cl = oc ? M.buildCentreline(oc.ctrl, { smoothMm: p.smoothMm, step: 0.5 }) : null; S.clVer++;
     S.tr = null; S.scan = null; S.axis = null; S.rankBest = []; S.rankPrac = [];
     if (!S.cl) { S.sH = S.sD = null; return; }
     const L = S.cl.length, Hs = {}; HK.forEach((k) => { if (S.m.H[k]) Hs[k] = S.m.H[k]; });
     const hk = Object.keys(Hs);
     if (hk.length && p.annAuto) { const cen = M.mul(hk.reduce((a, k) => M.add(a, Hs[k]), [0, 0, 0]), 1 / hk.length); S.sH = M.nearestS(S.cl, cen).s; }
-    else S.sH = Math.min(Math.max(p.annS != null ? p.annS : 0.75 * L, 0), L);
-    S.sD = Math.min(Math.max(p.descS != null ? p.descS : defaultDescLevel(S.cl), 0), L);
+    else S.sH = Math.min(Math.max(p.annS != null ? p.annS : 0.25 * L, 0), L);
+    S.sD = Math.min(Math.max(p.descS != null ? p.descS : M.defaultDescLevel(S.cl), 0), L);
     if (hk.length) {
       S.tr = M.transferMarkers(S.cl, Hs, { sD: S.sD, refMode: p.refMode, sCommon: S.sH, radiusMode: p.radMode, fixedR: p.fixedR });
       HK.forEach((k) => { if (!S.m.A[k] || !S.m.A[k].manual) S.m.A[k] = S.tr[k] ? { pos: S.tr[k].A, manual: false } : null; });
@@ -159,7 +159,7 @@
       ctx.strokeStyle = 'rgba(79,195,247,0.6)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(c[0] - 12, c[1]); ctx.lineTo(c[0] + 12, c[1]); ctx.moveTo(c[0], c[1] - 12); ctx.lineTo(c[0], c[1] + 12); ctx.stroke();
       ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(c[0], c[1]); ctx.lineTo(W - 4, c[1]); ctx.stroke(); ctx.setLineDash([]);
       ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right'; ctx.fillText('0° (N1)', W - 6, c[1] - 4);
-      ctx.textAlign = 'left'; ctx.fillStyle = '#cfd8dc'; ctx.fillText('looking along centreline direction (bifurcation → apex) · angles clockwise', 6, H - 6);
+      ctx.textAlign = 'left'; ctx.fillStyle = '#cfd8dc'; ctx.fillText('looking along centreline direction (apex → descending aorta) · angles clockwise', 6, H - 6);
       ctx.fillStyle = '#fff'; ctx.fillText('s = ' + f1(view.which === 'ann' ? S.sH : S.sD) + ' mm', 6, 14);
       if (view.which === 'desc' && S.sel && S.axis) { // beam plane trace
         const n3 = M.lateralDir(S.axis.a, S.sel.lao, S.sel.cran), f = view.frame();
@@ -363,9 +363,9 @@
     rows.push('<div class="muted small">Centreline</div>');
     rows.push(row('cl', 'Add centreline point (' + S.m.cl.length + ')', CL_COLOR));
     $('toolList').innerHTML = rows.join(''); updateAutoButtons();
-    $('clList').innerHTML = S.m.cl.length ? '<table>' + S.m.cl.map((P, i) => `<tr><td>C${i + 1}</td><td class="mono">${esc(fv(P))}</td><td><button class="g" data-act="goto" data-id="cl.${i}">⌖</button><button class="x" data-act="del" data-id="cl.${i}">✕</button></td></tr>`).join('') + '</table>' : '<div class="muted small" style="padding:4px">No points yet. Click along the aorta from the aortic bifurcation up and over the arch, through the valve to the LV apex.</div>';
+    $('clList').innerHTML = S.m.cl.length ? '<table>' + S.m.cl.map((P, i) => `<tr><td>C${i + 1}${i === 0 && S.m.cl.length >= 2 ? '<span class="muted small" title="first point = LV apex end"> apex</span>' : i === S.m.cl.length - 1 && i > 0 ? '<span class="muted small" title="last point = descending aorta end"> desc.</span>' : ''}</td><td class="mono">${esc(fv(P))}</td><td><button class="g" data-act="goto" data-id="cl.${i}">⌖</button><button class="x" data-act="del" data-id="cl.${i}">✕</button></td></tr>`).join('') + '</table>' : '<div class="muted small" style="padding:4px">No points yet. Click along the aorta starting at the LV apex, then through the LV outflow/aortic root and over the arch, and END in the descending aorta (apex → descending aorta).</div>';
     let w = '';
-    if (S.m.cl.length >= 2 && S.m.cl[0][2] > S.m.cl[S.m.cl.length - 1][2]) w = '⚠ First point is higher (z) than the last: order should be bifurcation → apex (use Reverse).';
+    if (S.m.cl.length >= 2 && S.clOrd && !S.clOrd.ok) w = '⚠ Centreline order looks reversed: the FIRST point should be at the LV apex and the LAST in the descending aorta (' + (S.clOrd.basis === 'root' ? 'the first point is ' + Math.round(S.clOrd.dFirst) + ' mm from the aortic root markers, the last only ' + Math.round(S.clOrd.dLast) + ' mm' : 'the first point is lower (z) than the last') + '). Results already use the corrected direction; press “Reverse order” to make C1…Cn match.';
     $('clWarn').textContent = w;
   }
   function renderMarkSummary() {
@@ -508,7 +508,7 @@
     HK.forEach((k) => { const P = S.m.H[k]; if (!P || !S.tr) return; const t = S.tr[k]; h += `<tr><td>H_${k}</td><td>${f1(P[0])}</td><td>${f1(P[1])}</td><td>${f1(P[2])}</td><td>${f1(((t.phi % 360) + 360) % 360)}°</td><td>${f1(t.rho)} mm</td><td>${f1(t.s)} mm</td><td>${(S.auto.hsrc || {})[k] === 'auto' ? `auto-detected (EXPERIMENTAL, conf ${S.auto.result ? S.auto.result.confidence : '?'}%) – verify` : 'user-marked'}</td></tr>`; });
     HK.forEach((k) => { const a = S.m.A[k]; if (!a) return; const t = M.angularPosition(S.cl, S.sD, a.pos); h += `<tr><td>A_${k}</td><td>${f1(a.pos[0])}</td><td>${f1(a.pos[1])}</td><td>${f1(a.pos[2])}</td><td>${f1(((t.phi % 360) + 360) % 360)}°</td><td>${f1(t.rho)} mm</td><td>${f1(S.sD)} mm</td><td>${a.manual ? 'manually adjusted' : 'computed (RMF transfer)'}</td></tr>`; });
     GROUPS.nadir.keys.forEach((k) => { const P = S.m.nadir[k]; if (P) h += `<tr><td><b style="color:${GROUPS.nadir.color[k]};text-shadow:0 0 1px #000">▲</b> Nadir ${k}</td><td>${f1(P[0])}</td><td>${f1(P[1])}</td><td>${f1(P[2])}</td><td>—</td><td>—</td><td>—</td><td>${S.auto.src[k] === 'auto' ? `auto-detected (EXPERIMENTAL, conf ${S.auto.result ? S.auto.result.confidence : '?'}%) – verify` : 'optional'}</td></tr>`; });
-    h += `</table><div class="small">*Angle about the smoothed centreline, measured clockwise (looking along the centreline direction, bifurcation → apex) from the RMF reference axis N1. Centreline: ${S.m.cl.length} manual points, Gaussian smoothing σ = ${S.p.smoothMm} mm, length ${f1(S.cl.length)} mm. Annulus level s = ${f1(S.sH)} mm; descending-aorta level s = ${f1(S.sD)} mm (from bifurcation). Angle reference: ${S.p.refMode === 'own' ? 'each H at its own level' : 'common level'}; A radius: ${S.p.radMode}${S.p.radMode === 'fixed' ? ' ' + S.p.fixedR + ' mm' : ''}. Minimum margin for 2:1: ${S.p.minMargin} mm.</div>`;
+    h += `</table><div class="small">*Angle about the smoothed centreline, measured clockwise (looking along the centreline direction, apex → descending aorta) from the RMF reference axis N1. Centreline: ${S.m.cl.length} manual points, Gaussian smoothing σ = ${S.p.smoothMm} mm, length ${f1(S.cl.length)} mm. Annulus level s = ${f1(S.sH)} mm; descending-aorta level s = ${f1(S.sD)} mm (from bifurcation). Angle reference: ${S.p.refMode === 'own' ? 'each H at its own level' : 'common level'}; A radius: ${S.p.radMode}${S.p.radMode === 'fixed' ? ' ' + S.p.fixedR + ' mm' : ''}. Minimum margin for 2:1: ${S.p.minMargin} mm.</div>`;
     h += `<h2>Simulated views</h2><div class="imgs"><img src="${img($('cvDiagA'))}" width="200"><img src="${img($('cvDiagH'))}" width="200"><img src="${img($('cvPolar2'))}" width="200"></div>`;
     h += `<h2>Projection map (margin of the 2:1 arrangement, mm)</h2><img src="${img($('cvHeat'))}" width="470">`;
     h += `<h2>Intra-procedural reminder (from the protocol)</h2><div class="small">With the FlexNav flush port at 12 o’clock, reproduce the arrangement of the three A markers (2 on one side : 1 on the other, as predicted above) in the NCC-isolation view; record the C-arm angle used. ${note ? '<br>Note: ' + esc(note) : ''}</div>`;
@@ -522,7 +522,7 @@
 <h3>Protocol implemented</h3><ol>
 <li>CT covering upper chest/aortic root to the femoral arteries.</li><li>Open the aortic-valve series (any DICOM series; choose in tab 1).</li>
 <li>Mark native commissures H_NL, H_NR, H_LR at the annular/SOV level (after cusp nadirs; nadirs optional).</li>
-<li>Define the aortic centreline by manual points from the aortic bifurcation to the cardiac apex; it is smoothed (centripetal Catmull-Rom, Gaussian σ).</li>
+<li>Define the aortic centreline by manual points <b>starting at the LV apex, through the LV outflow/aortic root and arch, and ending in the descending aorta</b> (apex → descending aorta; C1 = apex). The point order is checked against the root markers (the first point must be the end nearer the aortic root; falls back to height) and a warning is shown if it looks reversed – the maths then uses the corrected direction anyway, so results do not depend on the entry direction. The line is smoothed (centripetal Catmull-Rom, Gaussian σ).</li>
 <li>For each H marker, its angle about the local centreline (in a rotation-minimising frame) and radial offset are measured at the marker's level (or a common annulus level).</li>
 <li>The same angle/offset is re-applied at a chosen level in the descending aorta, giving A_NL, A_NR, A_LR in 3D patient coordinates (draggable).</li>
 <li>All C-arm projections LAO/RAO −60…+60°, CRAN/CAUD −40…+40° (1° grid) are tested: the A markers are projected orthographically; a projection is "2:1" when the signed lateral distances of the three markers from the projected centreline axis split 2 vs 1 and the nearest marker is at least <i>min margin</i> mm from the axis. Margin = distance of the nearest marker to the axis (mm). Gap = lateral distance between the single marker and the nearest pair marker.</li>
@@ -530,7 +530,7 @@
 <h3>Conventions</h3><ul>
 <li>Patient coordinates = DICOM LPS: x → patient left, y → posterior, z → superior (mm).</li>
 <li>C-arm: LAO positive, RAO negative; CRAN positive, CAUD negative. Beam direction (source→detector) d = (sin LAO·cos CRAN, −cos LAO·cos CRAN, sin CRAN). AP = 0°/0° has the source posterior and detector anterior. Image is displayed as seen from the detector: at AP patient-left is on image right, head is up.</li>
-<li>Angles about the centreline are measured clockwise as seen looking along the centreline direction (bifurcation → apex), from the RMF reference axis N1.</li></ul>
+<li>Angles about the centreline are measured clockwise as seen looking along the centreline direction (apex → descending aorta), from the RMF reference axis N1.</li></ul>
 <h3>Marker colours</h3><ul>
 <li><b style="color:#ffd600">▲ NCC = yellow</b>, <b style="color:#d50000">▲ LCC = red</b>, <b style="color:#00c853">▲ RCC = green</b> (cusp nadirs: triangles with a white outline, in markers, labels, lists, cross-sections, diagrams and the summary).</li>
 <li>H commissure markers are <b>circles</b>: H_NL <span style="color:#ff5252">red</span>, H_NR <span style="color:#69f0ae">green</span>, H_LR <span style="color:#448aff">blue</span> (unchanged; lighter tones than the nadir red/green, different shape, and always labelled). A markers are diamonds.</li>
@@ -547,7 +547,7 @@
 <li>Scrolling, arrow keys and sliders step along the rotated normal; markers, cursor/LPS/HU readouts and W/L, zoom, pan work in rotated views. Marker coordinates, the transfer step and the C-arm maths are always in patient (LPS) space and are not changed by rotating a view.</li></ul>
 <h3>Approximations / limitations</h3><ul>
 <li>Marker placement is manual, except the optional <b>experimental</b> “Auto-detect nadirs” (see below). There is no automatic centreline or commissure detection.</li>
-<li>The descending-aorta level is user-chosen; the default is an arbitrary heuristic (80 mm of centreline below the highest point of the centreline).</li>
+<li>The descending-aorta level is user-chosen; the default is an arbitrary heuristic (80 mm of centreline beyond the highest point of the centreline, i.e. past the top of the arch toward the descending aorta).</li>
 <li>The rotation-minimising (parallel-transport) frame is a mathematical model of "same rotational angle in the stretched view"; 3mensio's own straightened frame may differ, particularly around the arch. Always compare with 3mensio.</li>
 <li>C-arm geometry is idealised (orthographic projection, isocentric, no table rotation/tilt, no magnification/parallax, no gantry/cradle offsets, patient lying as in the CT). Real fluoroscopy angles may differ; sign conventions differ between systems and must be verified.</li>
 <li>DICOM: uncompressed (implicit/explicit VR little endian, explicit big endian, deflated), JPEG Lossless (Process 14 / SV1, hand-decoded), JPEG Baseline/Extended (8/12-bit, grey-scale only) and RLE Lossless. JPEG 2000, JPEG-LS, progressive JPEG, colour images and multi-frame (enhanced) CT are not supported. Series are chosen from a list; large folders (thousands of files, several series) are scanned header-only and only the selected series is decoded.</li>
@@ -587,9 +587,9 @@
     $('btnRotNadir').disabled = !have3; $('btnUndoNadir').disabled = !S.auto.prev; $('btnAutoNadir').disabled = !S.vol || autoBusy;
   }
   let autoBusy = false;
-  function flowAxisAt(P) {                              // centreline runs bifurcation -> apex (toward the LV): flow axis at the root = -tangent
+  function flowAxisAt(P) {                              // centreline runs apex -> descending aorta (the direction of blood flow): flow axis at the root = +tangent
     if (!S.cl) return null; const q = M.nearestS(S.cl, P); if (!q || q.dist > 30) return null;
-    const T = M.frameAt(S.cl, q.s).T; return M.mul(T, -1);
+    return M.frameAt(S.cl, q.s).T;
   }
   async function autoDetect() {
     if (!S.vol || autoBusy) return;
@@ -601,11 +601,11 @@
     let res;
     try {
       if (seed) res = NN.detect(S.vol, seed, { axisHint: flowAxisAt(seed) });
-      else {                                            // centreline only: try candidate positions along the last 70 mm of the centreline (toward the LV), keep the most confident
+      else {                                            // centreline only: try candidate positions along the first 70 mm of the centreline (apex end, through the LV outflow/root), keep the most confident
         let best = null; const L = S.cl.length;
-        for (let s = Math.max(0, L - 70); s <= L - 4; s += 6) { const C = M.frameAt(S.cl, s).C, r = NN.detect(S.vol, C, { axisHint: flowAxisAt(C), res: 1.1, half: 44 }); if (r.ok && (!best || r.confidence > best.res.confidence)) best = { res: r, C }; await new Promise((r2) => setTimeout(r2, 0)); }
+        for (let s = 4; s <= Math.min(L, 70); s += 6) { const C = M.frameAt(S.cl, s).C, r = NN.detect(S.vol, C, { axisHint: flowAxisAt(C), res: 1.1, half: 44 }); if (r.ok && (!best || r.confidence > best.res.confidence)) best = { res: r, C }; await new Promise((r2) => setTimeout(r2, 0)); }
         if (best) { seed = best.C; how = 'centreline scan'; res = NN.detect(S.vol, seed, { axisHint: flowAxisAt(seed) }); if (!res.ok) res = best.res; }
-        else res = { ok: false, message: 'No aortic root pattern (sinus bulge with three pockets) was found along the end of the centreline. Click “Set root seed” inside the opacified aortic root and try again.' };
+        else res = { ok: false, message: 'No aortic root pattern (sinus bulge with three pockets) was found along the apex end of the centreline. Click “Set root seed” inside the opacified aortic root and try again.' };
       }
     } catch (e) { res = { ok: false, message: 'Auto-detect could not run on this volume (' + e.message + '). Place the nadirs manually.' }; }
     autoBusy = false;
@@ -704,13 +704,22 @@ ${r.warnings.length ? '<ul class="warn small">' + r.warnings.map((w) => '<li>' +
 
   /* ---------------- session ---------------- */
   function saveSession() {
-    const o = { format: 'navitor-align-session', version: 1, note: 'coordinates only (LPS mm); no image data', markers: { nadir: S.m.nadir, H: S.m.H, cl: S.m.cl, A: S.m.A, seed: S.seed }, orient: S.orient, params: S.p, selection: S.sel, meta: { id: $('sumId').value, age: $('sumAge').value } };
+    const o = { format: 'navitor-align-session', version: 2, clOrder: 'apex-first', note: 'coordinates only (LPS mm); no image data', markers: { nadir: S.m.nadir, H: S.m.H, cl: S.m.cl, A: S.m.A, seed: S.seed }, orient: S.orient, params: S.p, selection: S.sel, meta: { id: $('sumId').value, age: $('sumAge').value } };
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(o, null, 1)], { type: 'application/json' })); a.download = 'navitor-align-markers.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
   async function loadSession(file) {
     try { const o = JSON.parse(await file.text()); if (o.format !== 'navitor-align-session') throw new Error('not a session file');
-      S.m = { nadir: o.markers.nadir, H: o.markers.H, cl: o.markers.cl, A: o.markers.A || { NL: null, NR: null, LR: null } }; S.seed = o.markers.seed || null; S.auto = { prev: null, result: null, src: {}, hsrc: {} }; if (S.vol) applyOrient(o.orient && o.orient.X && o.orient.Y ? Q.orthonormalise(o.orient) : Q.identity()); Object.assign(S.p, o.params || {}); if (o.selection) { S.sel = o.selection; S.selManual = true; }
-      $('sumId').value = (o.meta && o.meta.id) || ''; $('sumAge').value = (o.meta && o.meta.age) || ''; syncControls(); onChanged(); status('Markers loaded.', 'ok');
+      S.m = { nadir: o.markers.nadir, H: o.markers.H, cl: o.markers.cl, A: o.markers.A || { NL: null, NR: null, LR: null } }; S.seed = o.markers.seed || null;
+      let note = '';
+      if (o.clOrder !== 'apex-first' && S.m.cl && S.m.cl.length >= 2) {          // session saved by an older version: centreline was entered bifurcation -> apex
+        const chk = M.centrelineOrder(S.m.cl, rootPoints());
+        if (!chk.ok) {
+          const L = M.buildCentreline(S.m.cl, { smoothMm: o.params && o.params.smoothMm != null ? o.params.smoothMm : S.p.smoothMm, step: 0.5 }).length; S.m.cl = S.m.cl.slice().reverse();
+          const par = Object.assign({}, o.params || {}); if (par.annS != null) par.annS = Math.max(0, L - par.annS); if (par.descS != null) par.descS = Math.max(0, L - par.descS); o.params = par;   // arc lengths now run from the apex end
+          note = ' Old session: centreline order converted from bifurcation → apex to apex → descending aorta.';
+        } else note = ' Old session without order information: centreline already looks apex-first, kept as is.';
+      } S.auto = { prev: null, result: null, src: {}, hsrc: {} }; if (S.vol) applyOrient(o.orient && o.orient.X && o.orient.Y ? Q.orthonormalise(o.orient) : Q.identity()); Object.assign(S.p, o.params || {}); if (o.selection) { S.sel = o.selection; S.selManual = true; }
+      $('sumId').value = (o.meta && o.meta.id) || ''; $('sumAge').value = (o.meta && o.meta.age) || ''; syncControls(); onChanged(); status('Markers loaded.' + note, 'ok');
     } catch (e) { status('Could not load markers: ' + e.message, 'err'); }
   }
   function syncControls() {
@@ -789,6 +798,6 @@ ${r.warnings.length ? '<ul class="warn small">' + r.warnings.map((w) => '<li>' +
     ['sumId', 'sumAge', 'sumNote'].forEach((id) => $(id).addEventListener('input', () => { if (S.tab === 'summary') buildSummary(); }));
     syncWL(); syncControls(); renderToolList(); renderNow();
   }
-  window.NavApp = { GROUPS, CL_COLOR, Q, mprFrame, applyOrient, resetOrient, alignToCentreline, crossGeom, sliceGeom, S, M, update, onChanged, loadPhantom, demoMarkers, setTab, selectProjection, handleFiles, allMarkers, placeMarker, views, buildSummary, rescan, rerank, selEval, fitViews, renderNow, setVolume };
+  window.NavApp = { flowAxisAt, loadSession, saveSession, GROUPS, CL_COLOR, Q, mprFrame, applyOrient, resetOrient, alignToCentreline, crossGeom, sliceGeom, S, M, update, onChanged, loadPhantom, demoMarkers, setTab, selectProjection, handleFiles, allMarkers, placeMarker, views, buildSummary, rescan, rerank, selEval, fitViews, renderNow, setVolume };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();

@@ -109,7 +109,8 @@
     }
     return N1;
   }
-  /* Build centreline object from control points (ordered bifurcation -> apex).
+  /* Build centreline object from control points. The maths is direction-agnostic; the app feeds it points ordered
+   * LV APEX -> root -> arch -> DESCENDING AORTA (arc length s = 0 at the apex end). See orientCentreline().
    * opts: step (mm, default 0.5), smoothMm (Gaussian sigma, default 4) */
   function buildCentreline(ctrl, opts) {
     opts = opts || {};
@@ -125,6 +126,33 @@
     const N2 = T.map((t, i) => cross(t, N1[i]));
     const s = arcLengths(dense);
     return { pts: dense, T, N1, N2, s, length: s[n - 1], step, ctrl: ctrl.map((p) => p.slice()) };
+  }
+  /* Order check for manually marked centreline points. The protocol order is: first point at the LV APEX, then root, arch,
+   * last point in the DESCENDING aorta. Robust heuristic: the apex end lies much closer to the aortic root than the far end
+   * in the descending aorta, so compare the distance of the first and last point to the centroid of the root markers
+   * (rootPts = H markers, nadirs, seed - whichever exist). If the two distances differ by < minDiff mm (or there are no root
+   * markers yet) fall back to height: the apex end is normally higher (z) than the descending end of a supine CT.
+   * Returns {ok, basis:'root'|'z'|'none', dFirst, dLast}; ok === true when the first point is the apex end. */
+  function centrelineOrder(ctrl, rootPts, minDiff) {
+    if (!ctrl || ctrl.length < 2) return { ok: true, basis: 'none' };
+    const a = ctrl[0], b = ctrl[ctrl.length - 1], rp = (rootPts || []).filter(Boolean), md = minDiff == null ? 10 : minDiff;
+    if (rp.length) {
+      const c = mul(rp.reduce((q, p) => add(q, p), [0, 0, 0]), 1 / rp.length), dF = dist(a, c), dL = dist(b, c);
+      if (Math.abs(dF - dL) >= md) return { ok: dF < dL, basis: 'root', dFirst: dF, dLast: dL };
+    }
+    return { ok: a[2] >= b[2], basis: 'z', zFirst: a[2], zLast: b[2] };
+  }
+  /* Returns the control points in the canonical apex -> descending order (reversed copy if the order check fails). */
+  function orientCentreline(ctrl, rootPts) {
+    const chk = centrelineOrder(ctrl, rootPts), pts = ctrl.map((p) => p.slice());
+    if (!chk.ok) pts.reverse();
+    return { ctrl: pts, reversed: !chk.ok, check: chk };
+  }
+  /* Default descending-aorta level (arc length from the apex end): 80 mm of centreline beyond the highest centreline point
+   * (the top of the arch), clamped to [0.1 L, 0.85 L]. */
+  function defaultDescLevel(cl) {
+    let zi = 0; for (let i = 0; i < cl.pts.length; i++) if (cl.pts[i][2] > cl.pts[zi][2]) zi = i;
+    return Math.min(Math.max(cl.s[zi] + 80, 0.1 * cl.length), 0.85 * cl.length);
   }
   function indexAt(cl, s) {
     const n = cl.pts.length;
@@ -335,7 +363,7 @@
   }
 
   return { D2R, R2D, add, sub, mul, dot, cross, len, norm, lerp, dist, wrap180,
-    catmullRom, resample, gaussSmooth, arcLengths, rmf, buildCentreline, frameAt, nearestS, angularPosition, positionFromAngle, transferMarkers, angularGaps,
+    catmullRom, resample, gaussSmooth, arcLengths, rmf, buildCentreline, centrelineOrder, orientCentreline, defaultDescLevel, frameAt, nearestS, angularPosition, positionFromAngle, transferMarkers, angularGaps,
     beamDir, imageBasis, lateralDir, project, labelAngles, evalViewProjected, evalViewFast, classify, scanProjections, rankProjections, gridAngles,
     LAO_MIN, LAO_MAX, CRAN_MIN, CRAN_MAX };
 });

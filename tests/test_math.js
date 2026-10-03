@@ -120,4 +120,55 @@ test('ranking: practical list prefers small angles among near-best margins; NMS 
   ok(prac[0].margin >= 0.7 * g.best - 1e-6); for (let i = 1; i < prac.length; i++) ok(prac[i - 1].burden <= prac[i].burden + 1e-9);
   for (let i = 0; i < best.length; i++) for (let j = i + 1; j < best.length; j++) ok(Math.hypot(best[i].lao - best[j].lao, best[i].cran - best[j].cran) >= 4);
 });
+/* ---------- centreline order: LV apex -> root -> arch -> descending aorta ---------- */
+const APEX_FIRST = [[-24, -18, 10], [-22, -14, 40], [-6, 0, 100], [10, 14, 150], [26, 30, 120], [31, 44, 40], [31, 48, -60], [28, 52, -200]];
+const ROOT_H = { NL: [-14, -10, 46], NR: [-30, -12, 44], LR: [-22, -22, 48] };
+const ROOT_PTS = Object.values(ROOT_H);
+test('order check: root markers present -> apex-first accepted, reversed flagged (basis root)', () => {
+  const a = M.centrelineOrder(APEX_FIRST, ROOT_PTS), b = M.centrelineOrder(APEX_FIRST.slice().reverse(), ROOT_PTS);
+  ok(a.ok === true && a.basis === 'root', JSON.stringify(a)); ok(b.ok === false && b.basis === 'root', JSON.stringify(b));
+  ok(b.dFirst > 200 && b.dLast < 40, 'distances ' + b.dFirst + ' / ' + b.dLast);
+});
+test('order check: no root markers -> falls back to height (apex end higher than the descending end)', () => {
+  const a = M.centrelineOrder(APEX_FIRST, []), b = M.centrelineOrder(APEX_FIRST.slice().reverse(), null);
+  ok(a.ok === true && a.basis === 'z', JSON.stringify(a)); ok(b.ok === false && b.basis === 'z', JSON.stringify(b));
+});
+test('order check: ends almost equidistant from the root (< 10 mm apart) -> height fallback; < 2 points -> ok', () => {
+  const c = [[0, 0, 60], [0, 0, 0], [60, 0, 0]], r = M.centrelineOrder(c, [[0, 0, 0]]), r2 = M.centrelineOrder(c.slice().reverse(), [[0, 0, 0]]);
+  ok(r.basis === 'z' && r.ok === true && r2.basis === 'z' && r2.ok === false, JSON.stringify([r, r2])); ok(M.centrelineOrder([[0, 0, 0]], ROOT_PTS).ok === true && M.centrelineOrder([], ROOT_PTS).ok === true);
+});
+test('orientCentreline: either entry order gives the identical canonical (apex-first) control points and the identical centreline', () => {
+  const o1 = M.orientCentreline(APEX_FIRST, ROOT_PTS), o2 = M.orientCentreline(APEX_FIRST.slice().reverse(), ROOT_PTS);
+  ok(!o1.reversed && o2.reversed, 'reversed flags'); ok(JSON.stringify(o1.ctrl) === JSON.stringify(o2.ctrl), 'canonical ctrl differs');
+  const c1 = M.buildCentreline(o1.ctrl, { smoothMm: 4 }), c2 = M.buildCentreline(o2.ctrl, { smoothMm: 4 });
+  ok(c1.length === c2.length && JSON.stringify(c1.pts) === JSON.stringify(c2.pts) && JSON.stringify(c1.N1) === JSON.stringify(c2.N1), 'centrelines differ');
+  ok(M.dist(c1.pts[0], APEX_FIRST[0]) < 1e-6, 's = 0 is the apex end');
+});
+test('SAME GEOMETRY, EITHER ENTRY ORDER -> identical A markers, annulus/descending levels, projection scan and rankings', () => {
+  const run = (ctrl) => {
+    const cl = M.buildCentreline(M.orientCentreline(ctrl, ROOT_PTS).ctrl, { smoothMm: 4 }), cen = M.mul(ROOT_PTS.reduce((a, p) => M.add(a, p), [0, 0, 0]), 1 / 3);
+    const sH = M.nearestS(cl, cen).s, sD = M.defaultDescLevel(cl), tr = M.transferMarkers(cl, ROOT_H, { sD, refMode: 'own', radiusMode: 'keep' });
+    const A = ['NL', 'NR', 'LR'].map((k) => tr[k].A), f = M.frameAt(cl, sD), scan = M.scanProjections(f.C, f.T, A, { minMargin: 2 });
+    const best = M.rankProjections(scan, { mode: 'margin', count: 8 }), prac = M.rankProjections(scan, { mode: 'practical', frac: 0.7, refBest: best.length ? best[0].margin : 0, count: 8 });
+    return { sH, sD, A, phi: ['NL', 'NR', 'LR'].map((k) => tr[k].phi), best: best.map((b) => [b.lao, b.cran, b.margin]), prac: prac.map((b) => [b.lao, b.cran, b.margin]), nbest: best.length };
+  };
+  const a = run(APEX_FIRST), b = run(APEX_FIRST.slice().reverse());
+  ok(a.nbest > 0, 'test geometry must have 2:1 views'); ok(JSON.stringify(a) === JSON.stringify(b), 'results differ between the two entry orders');
+  ok(a.sD > a.sH, 'descending level (' + a.sD.toFixed(1) + ') must be farther from the apex than the annulus (' + a.sH.toFixed(1) + ')');
+});
+test('a centreline built WITHOUT canonicalisation from the reversed list still gives the same A markers (frame transport is reversible), < 0.05 mm', () => {
+  const fwd = M.buildCentreline(APEX_FIRST, { smoothMm: 4 }), rev = M.buildCentreline(APEX_FIRST.slice().reverse(), { smoothMm: 4 });
+  const sdF = M.defaultDescLevel(fwd), pD = M.frameAt(fwd, sdF).C, sdR = rev.length - sdF;
+  const t1 = M.transferMarkers(fwd, ROOT_H, { sD: sdF, refMode: 'own', radiusMode: 'keep' }), t2 = M.transferMarkers(rev, ROOT_H, { sD: sdR, refMode: 'own', radiusMode: 'keep' });
+  for (const k of ['NL', 'NR', 'LR']) ok(M.dist(t1[k].A, t2[k].A) < 0.05, k + ' differs ' + M.dist(t1[k].A, t2[k].A).toFixed(4) + ' mm (descending point apart ' + M.dist(pD, M.frameAt(rev, sdR).C).toFixed(3) + ')');
+});
+test('defaultDescLevel (arc length from the apex end) = 80 mm beyond the highest point, clamped; mirrors the previous bifurcation->apex definition', () => {
+  const cl = M.buildCentreline(APEX_FIRST, { smoothMm: 4 }), rev = M.buildCentreline(APEX_FIRST.slice().reverse(), { smoothMm: 4 });
+  let zi = 0; for (let i = 0; i < cl.pts.length; i++) if (cl.pts[i][2] > cl.pts[zi][2]) zi = i;
+  const d = M.defaultDescLevel(cl); near(d, Math.min(Math.max(cl.s[zi] + 80, 0.1 * cl.length), 0.85 * cl.length), 1e-9); ok(d > cl.s[zi], 'beyond the arch top');
+  let zj = 0; for (let i = 0; i < rev.pts.length; i++) if (rev.pts[i][2] > rev.pts[zj][2]) zj = i;
+  const oldDef = Math.min(Math.max(rev.s[zj] - 80, 0.15 * rev.length), 0.9 * rev.length);       // previous definition on the old-order centreline
+  near(cl.length - oldDef, d, 0.2, 'new = L - old for the same geometry');
+});
+
 summary();

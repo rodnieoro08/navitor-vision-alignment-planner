@@ -46,7 +46,7 @@
     </div>
     <div class="card">
       <h2>Synthetic sample (no patient data)</h2>
-      <p class="muted">Generated phantom: contrast-filled tube aorta from “bifurcation” over an arch to the aortic root and “apex”, with three commissure nodules (H) and three nadir nodules in the root. Use it to test the workflow.</p>
+      <p class="muted">Generated phantom: contrast-filled tube aorta from the LV apex through the aortic root and over an arch into the descending aorta, with three commissure nodules (H) and three nadir nodules in the root. Use it to test the workflow.</p>
       <div class="btnrow">
         <button class="btn primary" id="btnPhantom">Load synthetic phantom</button>
         <button class="btn" id="btnDemoMarkers" disabled>Place demo markers (phantom ground truth)</button>
@@ -76,7 +76,8 @@
       <div id="autoNadirOut" class="autoOut"></div>
       <label class="chk"><input type="checkbox" id="chkInsert"> insert centreline points at nearest segment</label>
       <label class="chk"><input type="checkbox" id="chkAdvance" checked> auto-advance H_NL → H_NR → H_LR</label>
-      <h3>Centreline (bifurcation → apex)</h3>
+      <h3>Centreline (Apex → descending aorta)</h3>
+      <div class="muted small">Start at the LV apex, go through the LV outflow / aortic root and arch, end in the descending aorta (C1 = apex).</div>
       <div id="clList" class="clList"></div>
       <div class="btnrow tight">
         <button class="btn sm" id="btnClReverse">Reverse order</button>
@@ -119,7 +120,7 @@
       <h3>Centreline</h3>
       <label class="rng">Smoothing σ <input type="range" id="smooth" min="0" max="12" step="0.5" value="4"><output id="smoothO"></output></label>
       <div id="clStats" class="infobox"></div>
-      <h3>Levels (arc length from bifurcation)</h3>
+      <h3>Levels (arc length from the LV apex end)</h3>
       <label class="chk"><input type="checkbox" id="chkAnnAuto" checked> annulus level automatic (from H markers)</label>
       <label class="rng">Annulus level <input type="range" id="annLevel" min="0" max="700" step="0.5" value="0"><output id="annLevelO"></output></label>
       <label class="rng">Descending-aorta level <input type="range" id="descLevel" min="0" max="700" step="0.5" value="0"><output id="descLevelO"></output></label>
@@ -138,7 +139,7 @@
         <div class="vwrap"><div class="vtitle" id="titleDesc">Cross-section at descending level (A markers – drag to adjust)</div><canvas id="cvXDesc" width="400" height="400"></canvas></div>
         <div class="vwrap"><canvas id="cvPolar1" width="360" height="400"></canvas></div>
       </div>
-      <div class="vwrap wide"><div class="vtitle">Stretched (straightened) vessel view – bifurcation (left) → apex (right); vertical lines = annulus (orange) and descending (cyan) level</div><canvas id="cvCPR" width="1000" height="260"></canvas></div>
+      <div class="vwrap wide"><div class="vtitle">Stretched (straightened) vessel view – LV apex (left) → descending aorta (right); vertical lines = annulus (orange) and descending (cyan) level</div><canvas id="cvCPR" width="1000" height="260"></canvas></div>
       <div id="transferTable"></div>
     </div>
   </div>

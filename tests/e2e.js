@@ -505,6 +505,86 @@ async function clickAt(pg, key, P, opts) { await setCross(pg, P); const [x, y] =
     await pgm.click('#btnResetOrient');
   });
 
+
+  // ---------- centreline order: LV apex -> root -> arch -> descending aorta (order checks, either entry order gives identical results, old sessions) ----------
+  const pgo = await newPage('http://127.0.0.1:' + port + '/');
+  await pgo.evaluate(() => { NavApp.loadPhantom(); NavApp.demoMarkers(); NavApp.setTab('mark'); });
+  const snap = async () => { await pgo.waitForTimeout(150); return pgo.evaluate(() => { const S = NavApp.S; return { A: ['NL', 'NR', 'LR'].map((k) => S.m.A[k].pos), sH: S.sH, sD: S.sD, best: S.rankBest.map((b) => [b.lao, b.cran, +b.margin.toFixed(6)]), prac: S.rankPrac.map((b) => [b.lao, b.cran, +b.margin.toFixed(6)]), sel: S.sel, len: S.cl.length, rev: S.clRev, warn: document.getElementById('clWarn').textContent, cl0: S.m.cl[0], cln: S.m.cl[S.m.cl.length - 1] }; }); };
+  const maxd = (a, b) => Math.max(...a.A.map((p, i) => Math.hypot(...p.map((v, j) => v - b.A[i][j]))));
+  let base;
+  await test('centreline UI: heading "Centreline (Apex → descending aorta)"; demo markers are apex-first, no order warning, C1 = apex end, A markers + 2:1 ranking exist', async () => {
+    ok(await pgo.evaluate(() => [...document.querySelectorAll('h3')].some((h) => h.textContent === 'Centreline (Apex → descending aorta)')), 'heading');
+    base = await snap(); ok(base.warn === '' && base.rev === false, 'warn "' + base.warn + '"'); ok(base.best.length > 0 && base.prac.length > 0, 'ranked results');
+    const d = await pgo.evaluate(() => { const S = NavApp.S, M = NavApp.M, c = M.mul(['NL', 'NR', 'LR'].map((k) => S.m.H[k]).reduce((a, p) => M.add(a, p), [0, 0, 0]), 1 / 3); return [M.dist(S.m.cl[0], c), M.dist(S.m.cl[S.m.cl.length - 1], c)]; });
+    ok(d[0] < d[1] - 20, 'C1 is the end nearer the root: ' + d.map((x) => x.toFixed(0)));
+    ok(base.sD > base.sH, 'descending level is farther from the apex than the annulus: ' + base.sD.toFixed(0) + ' vs ' + base.sH.toFixed(0));
+    const lst = await pgo.textContent('#clList'); ok(/C1\s*apex/.test(lst) && /C17\s*desc\./.test(lst), 'list hints: ' + lst.slice(0, 60));
+  });
+  await test('flow axis for the auto-detect hint = +tangent (apex -> descending): points from the LV towards the arch at the root', async () => {
+    const r = await pgo.evaluate(() => { const S = NavApp.S, M = NavApp.M, c = M.mul(['NL', 'NR', 'LR'].map((k) => S.m.H[k]).reduce((a, p) => M.add(a, p), [0, 0, 0]), 1 / 3), q = M.nearestS(S.cl, c), f = NavApp.flowAxisAt(c);
+      const lv = M.frameAt(S.cl, Math.max(0, q.s - 15)).C, ao = M.frameAt(S.cl, q.s + 15).C, dir = M.norm(M.sub(ao, lv)); return { dot: M.dot(f, dir), len: M.len(f) }; });
+    ok(r.dot > 0.9 && Math.abs(r.len - 1) < 1e-6, JSON.stringify(r));
+  });
+  await test('reversing the entered points: warning appears (names the apex), results IDENTICAL (A markers, levels, rankings, selection); Reverse again clears the warning', async () => {
+    await pgo.click('#btnClReverse'); await pgo.waitForTimeout(100);
+    const r = await snap(); ok(r.rev === true && /reversed/.test(r.warn) && /apex/i.test(r.warn), 'warn "' + r.warn + '"');
+    ok(JSON.stringify(r.cl0) === JSON.stringify(base.cln) && JSON.stringify(r.cln) === JSON.stringify(base.cl0), 'list really reversed');
+    ok(maxd(r, base) < 1e-9, 'A markers differ by ' + maxd(r, base)); ok(r.sH === base.sH && r.sD === base.sD && r.len === base.len, 'levels/length differ');
+    ok(JSON.stringify(r.best) === JSON.stringify(base.best) && JSON.stringify(r.prac) === JSON.stringify(base.prac) && JSON.stringify(r.sel) === JSON.stringify(base.sel), 'rankings/selection differ');
+    const sum = await pgo.evaluate(() => { NavApp.buildSummary(); return document.getElementById('printArea').textContent; }); ok(/Selected C-arm projection|LAO|RAO/.test(sum));
+    await pgo.click('#btnClReverse'); await pgo.waitForTimeout(100);
+    const r2 = await snap(); ok(r2.warn === '' && r2.rev === false && maxd(r2, base) < 1e-9, 'back to the original: "' + r2.warn + '"');
+  });
+  await test('order check falls back to height (z) without root markers; still warns on a reversed list and results stay unchanged once markers return', async () => {
+    const H = await pgo.evaluate(() => { const S = NavApp.S, h = JSON.parse(JSON.stringify(S.m.H)), n = JSON.parse(JSON.stringify(S.m.nadir)); S.m.cl.reverse(); S.m.H = { NL: null, NR: null, LR: null }; S.m.nadir = { NCC: null, LCC: null, RCC: null }; NavApp.onChanged(); window.__keep = { h, n }; });
+    await pgo.waitForTimeout(150); const Hw = await pgo.evaluate(() => document.getElementById('clWarn').textContent);
+    ok(/reversed/.test(Hw) && /lower \(z\)/.test(Hw), 'z fallback warning "' + Hw + '"');
+    await pgo.evaluate(() => { const S = NavApp.S; S.m.cl.reverse(); NavApp.onChanged(); }); await pgo.waitForTimeout(150); ok((await pgo.evaluate(() => document.getElementById('clWarn').textContent)) === '', 'no warning for apex-first without root markers');
+    await pgo.evaluate(() => { const S = NavApp.S; S.m.H = window.__keep.h; S.m.nadir = window.__keep.n; S.m.A = { NL: null, NR: null, LR: null }; S.selManual = false; NavApp.onChanged(); });
+    const r = await snap(); ok(maxd(r, base) < 1e-9 && JSON.stringify(r.best) === JSON.stringify(base.best), 'results after re-adding markers differ');
+  });
+  await test('"Align to centreline" gives the same orientation whichever way the points were entered (cranial-pointing axial normal)', async () => {
+    const al = () => pgo.evaluate(() => { const S = NavApp.S, M = NavApp.M; S.cross = M.frameAt(S.cl, S.sH).C.slice(); NavApp.alignToCentreline(); return JSON.parse(JSON.stringify(S.orient)); });
+    const o1 = await al(); await pgo.click('#btnClReverse'); const o2 = await al(); await pgo.click('#btnClReverse'); await pgo.evaluate(() => NavApp.resetOrient());
+    ok(o1.Z[2] > 0 && o2.Z[2] > 0, 'axial normal points cranially'); for (const k of ['X', 'Y', 'Z']) o1[k].forEach((v, i) => near(v, o2[k][i], 1e-9, 'orient ' + k));
+  });
+  await test('session v2: saves clOrder "apex-first"; reloading is lossless; OLD sessions (bifurcation -> apex, no clOrder) are detected and reversed, with levels converted, giving identical results', async () => {
+    const [dl] = await Promise.all([pgo.waitForEvent('download'), pgo.evaluate(() => document.getElementById('btnSaveSession').click())]);
+    const f = path.join(__dirname, 'out', 'session_v2.json'); await dl.saveAs(f); const j = JSON.parse(fs.readFileSync(f, 'utf8'));
+    ok(j.version === 2 && j.clOrder === 'apex-first', 'version/clOrder ' + j.version + ' ' + j.clOrder); ok(JSON.stringify(j.markers.cl) === JSON.stringify(base.cl0 && (await pgo.evaluate(() => NavApp.S.m.cl))), 'cl saved as is');
+    // an old-format file: reversed centreline, no clOrder, version 1, user-set levels measured from the old (bifurcation) end
+    const old = JSON.parse(JSON.stringify(j)); old.version = 1; delete old.clOrder; old.markers.cl.reverse(); delete old.markers.A; old.params.annAuto = false; old.params.annS = base.len - base.sH; old.params.descS = base.len - base.sD - 20;
+    const fo = path.join(__dirname, 'out', 'session_v1_old.json'); fs.writeFileSync(fo, JSON.stringify(old));
+    await pgo.evaluate(() => { document.getElementById('btnClearAll').click(); });
+    await pgo.setInputFiles('#inSession', fo); await pgo.waitForFunction(() => NavApp.S.m.cl.length === 17 && NavApp.S.scan);
+    const st = await pgo.textContent('#loadStatus'); ok(/converted from bifurcation → apex/.test(st), st);
+    const r = await snap(); ok(r.rev === false && r.warn === '', 'after conversion the list is apex-first: "' + r.warn + '"'); ok(JSON.stringify(r.cl0) === JSON.stringify(base.cl0), 'C1 is the apex end again');
+    near(r.sH, base.sH, 1e-6, 'annulus level converted'); near(r.sD, base.sD + 20, 1e-6, 'descending level converted (+20 mm toward the descending aorta)');
+    // old session whose centreline is already apex-first: kept
+    const keep = JSON.parse(JSON.stringify(j)); keep.version = 1; delete keep.clOrder; const fk = path.join(__dirname, 'out', 'session_v1_apexfirst.json'); fs.writeFileSync(fk, JSON.stringify(keep));
+    await pgo.setInputFiles('#inSession', fk); await pgo.waitForFunction(() => /already looks apex-first/.test(document.getElementById('loadStatus').textContent)); ok(JSON.stringify((await snap()).cl0) === JSON.stringify(base.cl0), 'kept');
+    // new file loads without any conversion note
+    await pgo.setInputFiles('#inSession', f); await pgo.waitForFunction(() => /Markers loaded\.$/.test(document.getElementById('loadStatus').textContent));
+    const r3 = await snap(); ok(maxd(r3, base) < 1e-9, 'v2 reload lossless');
+  });
+  await test('auto-detect from the centreline alone scans the APEX end (first 70 mm): synthetic root, centreline entered apex-first AND reversed -> same nadirs (< 3 mm from truth)', async () => {
+    const pgr = await newPage('http://127.0.0.1:' + port + '/');
+    await pgr.evaluate(() => { const g = NavPhantom.generateRoot({ rotDeg: 20, noise: 30 }); window.__g = g; NavApp.setVolume(new NavVolume.Volume(g.volume), 'synthetic aortic root'); NavApp.setTab('mark'); });
+    const Tr = await pgr.evaluate(() => window.__g.truth), a = Tr.axis, C0 = Tr.annulusCentre, pt = (t) => C0.map((v, i) => Math.round((v + a[i] * t) * 10) / 10);
+    const e1 = Tr.e1, up = (q, d, u) => q.map((v, i) => Math.round((v + d * e1[i] + u * (i === 2 ? 1 : 0)) * 10) / 10), top = pt(80);
+    const apexFirst = [pt(-45), pt(-20), pt(5), pt(40), top, up(top, 40, 15), up(top, 90, -20), up(top, 95, -110), up(top, 95, -220)];   // LV (below the annulus) -> root -> ascending aorta -> arch -> descending aorta (the phantom axis points along the flow)
+    const flow = await pgr.evaluate(([c, C0]) => { NavApp.S.m.cl = c; NavApp.onChanged(); return NavApp.flowAxisAt(C0); }, [apexFirst, C0]);
+    ok(flow[0] * a[0] + flow[1] * a[1] + flow[2] * a[2] > 0.99, 'flow axis ' + flow);
+    const res = [];
+    for (const order of [apexFirst, apexFirst.slice().reverse()]) {
+      await pgr.evaluate(([c]) => { NavApp.S.m.cl = c; NavApp.S.m.nadir = { NCC: null, LCC: null, RCC: null }; NavApp.S.m.H = { NL: null, NR: null, LR: null }; NavApp.S.seed = null; NavApp.onChanged(); }, [order]);
+      await pgr.click('#btnAutoNadir'); await pgr.waitForFunction(() => !document.getElementById('btnAutoNadir').disabled, null, { timeout: 60000 }); await pgr.waitForTimeout(200);
+      res.push(await pgr.evaluate(() => ({ n: NavApp.S.m.nadir, txt: document.getElementById('autoNadirOut').textContent })));
+    }
+    for (const r of res) for (const k of ['NCC', 'LCC', 'RCC']) { ok(r.n[k], 'nadir ' + k + ' missing: ' + r.txt.slice(0, 200)); ok(dist(r.n[k], Tr.nadir[k]) < 3, k + ' err ' + dist(r.n[k], Tr.nadir[k]).toFixed(2)); }
+    ok(JSON.stringify(res[0].n) === JSON.stringify(res[1].n), 'nadirs differ between entry orders');
+  });
+
   await test('no external network requests were made (only local server / file / blob / data)', async () => {
     const bad = requests.filter((u) => !/^(http:\/\/127\.0\.0\.1:|file:|blob:|data:)/.test(u)); ok(bad.length === 0, bad.join(','));
   });

@@ -129,7 +129,7 @@
       ctx.beginPath(); ctx.moveTo(cx + Math.cos(t) * (R - 6), cy + Math.sin(t) * (R - 6)); ctx.lineTo(x1, y1); ctx.stroke();
       ctx.fillText(a + '°', cx + Math.cos(t) * (R + 15), cy + Math.sin(t) * (R + 15) + 3);
     }
-    ctx.fillStyle = '#777'; ctx.fillText('0° = reference axis N1 (right); clockwise, looking along bifurcation → apex', cx, H - 6);
+    ctx.fillStyle = '#777'; ctx.fillText('0° = reference axis N1 (right); clockwise, looking along apex → descending aorta', cx, H - 6);
     const maxRho = Math.max(1, ...[...(o.H || []), ...(o.A || [])].map((m) => m.rho)), sc = R / (maxRho * 1.15);
     if (o.beam) { // dividing line = plane of axis+beam; n2 = image-right direction in this plane (screen coords x=N1,y=N2)
       const n = o.beam.n2, nl = Math.hypot(n[0], n[1]);

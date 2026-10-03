@@ -1,0 +1,21 @@
+# dependencies / runtime
+node_modules/
+serve.log
+.port
+*.log
+# generated test data and tooling (re-created by tests/run_all.sh)
+tests/out/
+# patient-like / user data must never be committed
+*.dcm
+*.DCM
+*.dicom
+DICOMDIR
+*.zip
+*.pdf
+*.raw
+# OS / editor junk
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

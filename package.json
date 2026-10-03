@@ -1,0 +1,15 @@
+{
+  "name": "navitor-align",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Client-side investigational planner for Navitor Vision commissural alignment from CT (no server upload).",
+  "scripts": {
+    "build": "node build.js",
+    "serve": "node serve.js",
+    "sample": "node tests/make_sample_dicom.js",
+    "test:unit": "node tests/test_math.js && node tests/test_dicom.js",
+    "test:e2e": "node tests/e2e.js",
+    "test": "bash tests/run_all.sh"
+  },
+  "devDependencies": { "playwright-core": "^1.55.0" }
+}

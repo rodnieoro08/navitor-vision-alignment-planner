@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Navitor Vision commissural alignment planner (investigational)</title>
+<style>/*__CSS__*/</style>
+</head>
+<body>
+<header id="top">
+  <div class="titlebar">
+    <h1>Navitor Vision – commissural alignment planner</h1>
+    <span class="badge">INVESTIGATIONAL · NOT VALIDATED</span>
+  </div>
+  <div class="disclaimer" id="disclaimer">
+    <b>Investigational decision-support tool – not validated, not a medical device, not for sole clinical use.</b>
+    Verify every marker, angle and result against 3mensio (or equivalent) and live fluoroscopy before acting.
+    <b>No patient data leaves this browser</b> – everything runs locally; nothing is uploaded or stored on a server.
+  </div>
+  <nav id="tabs">
+    <button data-tab="load" class="active">1 · Load CT</button>
+    <button data-tab="mark">2 · Mark (MPR)</button>
+    <button data-tab="transfer">3 · Transfer to descending aorta</button>
+    <button data-tab="carm">4 · C-arm projections</button>
+    <button data-tab="summary">5 · Summary / print</button>
+    <button data-tab="help">Method &amp; assumptions</button>
+  </nav>
+</header>
+
+<main>
+<!-- ================= LOAD ================= -->
+<section id="tab-load" class="tab active">
+  <div class="cols">
+    <div class="card">
+      <h2>Load CT (DICOM)</h2>
+      <p class="muted">CT should cover the upper chest / aortic root down to the femoral arteries (protocol step 1). Files are read locally by the browser (hand-written parser and decoders – no libraries, nothing uploaded). Supported: uncompressed, JPEG Lossless (Process 14 / SV1), JPEG Baseline, RLE. Not supported: JPEG 2000, JPEG-LS. A whole study folder (thousands of files, many series) can be dropped: it is scanned header-only, the best axial thin contrast CT series is pre-selected, and only the series you load is decoded.</p>
+      <div id="drop" class="drop" tabindex="0">Drop DICOM files, a folder, or a .zip here</div>
+      <div class="btnrow">
+        <label class="btn">Choose files… <input type="file" id="inFiles" multiple hidden></label>
+        <label class="btn">Choose folder… <input type="file" id="inFolder" webkitdirectory multiple hidden></label>
+        <label class="btn">Choose .zip… <input type="file" id="inZip" accept=".zip,application/zip" hidden></label>
+      </div>
+      <div class="progress"><div id="progBar"></div></div>
+      <div id="loadStatus" class="status">No volume loaded.</div>
+      <div id="seriesList"></div>
+    </div>
+    <div class="card">
+      <h2>Synthetic sample (no patient data)</h2>
+      <p class="muted">Generated phantom: contrast-filled tube aorta from “bifurcation” over an arch to the aortic root and “apex”, with three commissure nodules (H) and three nadir nodules in the root. Use it to test the workflow.</p>
+      <div class="btnrow">
+        <button class="btn primary" id="btnPhantom">Load synthetic phantom</button>
+        <button class="btn" id="btnDemoMarkers" disabled>Place demo markers (phantom ground truth)</button>
+      </div>
+      <p class="muted small">Demo markers use the phantom’s known landmark positions and centreline, so the numerical chain can be checked end-to-end.</p>
+      <h3>Session</h3>
+      <div class="btnrow">
+        <button class="btn" id="btnSaveSession">Save markers (.json)</button>
+        <label class="btn">Load markers… <input type="file" id="inSession" accept=".json" hidden></label>
+      </div>
+      <p class="muted small">Marker files contain only coordinates (patient-frame mm), parameters and your optional anonymised ID – no image data, no names.</p>
+      <div id="volInfo" class="infobox"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= MARK ================= -->
+<section id="tab-mark" class="tab">
+  <div class="markLayout">
+    <aside class="panel" id="markPanel">
+      <h3>Marker tools</h3>
+      <div id="toolList"></div>
+      <h3>Auto-detect nadirs + commissures <span class="tag">experimental</span></h3>
+      <div class="muted small">Needs a seed inside the contrast-filled aortic root (middle of the sinuses): use “Set root seed” above and click in any view, or move the crosshair there and press “Seed = crosshair”. With ≥ 3 centreline points the root axis is taken from the centreline.</div>
+      <div class="btnrow tight"><button class="btn sm" id="btnSeedCross">Seed = crosshair</button><button class="btn sm primary" id="btnAutoNadir">Auto-detect nadirs + commissures</button></div>
+      <div class="btnrow tight"><button class="btn sm" id="btnRotNadir" disabled title="cyclic relabel of the cusps (keeps the anatomical handedness); H_NL/H_NR/H_LR are renamed to match">Rotate labels</button><button class="btn sm" id="btnUndoNadir" disabled title="restore the nadirs and H markers that were there before">Undo auto-detect</button></div>
+      <div id="autoNadirOut" class="autoOut"></div>
+      <label class="chk"><input type="checkbox" id="chkInsert"> insert centreline points at nearest segment</label>
+      <label class="chk"><input type="checkbox" id="chkAdvance" checked> auto-advance H_NL → H_NR → H_LR</label>
+      <h3>Centreline (bifurcation → apex)</h3>
+      <div id="clList" class="clList"></div>
+      <div class="btnrow tight">
+        <button class="btn sm" id="btnClReverse">Reverse order</button>
+        <button class="btn sm" id="btnClClear">Clear centreline</button>
+        <button class="btn sm" id="btnClearAll">Clear all</button>
+      </div>
+      <div id="clWarn" class="warn"></div>
+      <h3>Window / level</h3>
+      <div class="btnrow tight" id="wlPresets"></div>
+      <label class="rng">Level <input type="range" id="wlLevel" min="-600" max="900" value="200"><output id="wlLevelO"></output></label>
+      <label class="rng">Window <input type="range" id="wlWindow" min="50" max="2500" value="700"><output id="wlWindowO"></output></label>
+      <h3>Help</h3>
+      <ul class="help small">
+        <li><b>Left-click</b>: navigate (Navigate tool) or place the selected marker at the clicked in-plane position on that view’s <i>current slice</i>.</li>
+        <li><b>Scroll / two-finger swipe</b>: change slice (also <b>↑/↓, PageUp/PageDown</b> on the hovered view, <b>Shift</b> = 5 slices; slider under each view) · <b>Ctrl+scroll / pinch</b>: zoom · <b>Shift+drag / middle-drag</b>: pan · <b>Right-drag</b>: window/level.</li>
+        <li><b>Drag</b> a marker to move it in-plane · <b>Alt+click</b> a marker to delete it.</li>
+        <li>Solid symbol = marker within ±3 mm of the slice; hollow = nearby slice.</li>
+        <li><b>Oblique MPR</b>: drag the round <b>handles</b> at the ends of the blue crosshair lines to rotate the other two planes about this view (planes stay orthogonal) · drag a <b>line</b> to move that plane · <b>Reset orientation</b> / <b>Align to centreline</b> (info box under the views shows the angles).</li>
+        <li><b>Colours</b>: nadirs ▲ NCC yellow · LCC red · RCC green; H commissures ● NL red · NR green · LR blue; centreline points cyan; root seed magenta ⊕.</li>
+        <li><b>Auto-detect nadirs + commissures</b> is experimental and only tested on synthetic phantoms – always verify and drag the nadirs <i>and</i> H commissure points; <b>Rotate labels</b> (H follow) / <b>Undo auto-detect</b> if wrong.</li>
+      </ul>
+    </aside>
+    <div class="mprGrid">
+      <div class="vwrap"><div class="vtitle">Axial</div><canvas id="cvAxial" width="460" height="460"></canvas></div>
+      <div class="vwrap"><div class="vtitle">Coronal</div><canvas id="cvCoronal" width="460" height="460"></canvas></div>
+      <div class="vwrap"><div class="vtitle">Sagittal</div><canvas id="cvSagittal" width="460" height="460"></canvas></div>
+      <div class="vwrap info"><div class="vtitle">Cursor</div><div id="cursorInfo" class="infobox mono"></div>
+        <div id="orientInfo" class="infobox mono small"></div>
+        <div class="btnrow tight"><button class="btn sm" id="btnResetOrient" disabled title="back to the scanner axial / coronal / sagittal planes">Reset orientation</button><button class="btn sm" id="btnAlignCl" disabled title="rotate the planes so that the axial plane is perpendicular to the centreline at the cursor (needs ≥ 2 centreline points)">Align to centreline</button></div>
+        <div class="btnrow tight"><button class="btn sm" id="btnFitAll">Fit all views</button><label class="small" title="Reverse the direction of wheel / trackpad / arrow-key slice scrolling"><input type="checkbox" id="chkInvScroll"> invert scroll</label><button class="btn sm" id="btnGoRoot">Go to H centroid</button></div>
+        <div id="markSummary" class="infobox"></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= TRANSFER ================= -->
+<section id="tab-transfer" class="tab">
+  <div class="transferLayout">
+    <aside class="panel">
+      <h3>Centreline</h3>
+      <label class="rng">Smoothing σ <input type="range" id="smooth" min="0" max="12" step="0.5" value="4"><output id="smoothO"></output></label>
+      <div id="clStats" class="infobox"></div>
+      <h3>Levels (arc length from bifurcation)</h3>
+      <label class="chk"><input type="checkbox" id="chkAnnAuto" checked> annulus level automatic (from H markers)</label>
+      <label class="rng">Annulus level <input type="range" id="annLevel" min="0" max="700" step="0.5" value="0"><output id="annLevelO"></output></label>
+      <label class="rng">Descending-aorta level <input type="range" id="descLevel" min="0" max="700" step="0.5" value="0"><output id="descLevelO"></output></label>
+      <div class="btnrow tight"><button class="btn sm" id="btnDescDefault">Default descending level</button></div>
+      <h3>Transfer options</h3>
+      <label class="sel">Angle reference <select id="refMode"><option value="own">each H at its own level</option><option value="common">all H at common annulus level</option></select></label>
+      <label class="sel">Radius of A markers <select id="radMode"><option value="keep">as measured for each H</option><option value="mean">mean of H radii</option><option value="fixed">fixed value</option></select></label>
+      <label class="rng" id="fixedRow">Fixed radius <input type="number" id="fixedR" min="2" max="40" step="0.5" value="12" style="width:70px"> mm</label>
+      <h3>Straightened view</h3>
+      <label class="rng">Cut-plane angle <input type="range" id="cprAngle" min="0" max="359" value="0"><output id="cprAngleO"></output></label>
+      <p class="muted small">Cut-plane angle is measured about the centreline from the RMF reference axis N1.</p>
+    </aside>
+    <div class="tmain">
+      <div class="xrow">
+        <div class="vwrap"><div class="vtitle" id="titleAnn">Cross-section at annulus level (H markers)</div><canvas id="cvXAnn" width="400" height="400"></canvas></div>
+        <div class="vwrap"><div class="vtitle" id="titleDesc">Cross-section at descending level (A markers – drag to adjust)</div><canvas id="cvXDesc" width="400" height="400"></canvas></div>
+        <div class="vwrap"><canvas id="cvPolar1" width="360" height="400"></canvas></div>
+      </div>
+      <div class="vwrap wide"><div class="vtitle">Stretched (straightened) vessel view – bifurcation (left) → apex (right); vertical lines = annulus (orange) and descending (cyan) level</div><canvas id="cvCPR" width="1000" height="260"></canvas></div>
+      <div id="transferTable"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= CARM ================= -->
+<section id="tab-carm" class="tab">
+  <div class="carmLayout">
+    <div class="carmLeft">
+      <div class="card">
+        <h2>Projection search (A markers)</h2>
+        <div id="carmStatus" class="status"></div>
+        <div class="ctrlrow">
+          <label>Min margin to count as 2:1 <input type="number" id="minMargin" value="2" min="0" max="10" step="0.5" style="width:60px"> mm</label>
+          <label>Practical = margin ≥ <input type="number" id="pracFrac" value="70" min="10" max="100" step="5" style="width:56px"> % of best</label>
+          <label>Pair on image <select id="sideSel"><option value="any">either side</option><option value="left">left (2L:1R)</option><option value="right">right (1L:2R)</option></select></label>
+          <label class="chk"><input type="checkbox" id="chkStable"> only ±2° stable cells</label>
+        </div>
+        <canvas id="cvHeat" width="800" height="530"></canvas>
+        <div id="heatHover" class="muted small mono">hover the map for values · click to select a projection</div>
+        <div class="legend"><span><i class="lg" style="background:linear-gradient(90deg,#0d0887,#b12a90,#fca636,#f0f921)"></i> margin (0 → best)</span><span><i class="lg" style="background:#1c2128;border:1px solid #444"></i> not 2:1</span><span><i class="lg" style="background:#3a3f48"></i> side filtered out</span><span>○ S# = best separation</span><span style="color:#4dd0e1">□ P# = practical</span><span style="color:#ff1744">+ selected</span></div>
+      </div>
+      <div class="card"><div id="rankTables"></div></div>
+    </div>
+    <div class="carmRight">
+      <div class="card">
+        <h2>Selected projection</h2>
+        <div class="selbox">
+          <label>LAO(+)/RAO(−) <input type="number" id="selLao" min="-60" max="60" step="1" value="0"></label>
+          <label>CRAN(+)/CAUD(−) <input type="number" id="selCran" min="-40" max="40" step="1" value="0"></label>
+        </div>
+        <div id="selBig" class="selbig">—</div>
+        <div id="selInfo" class="infobox"></div>
+        <div class="diagrams">
+          <canvas id="cvDiagA" width="330" height="400"></canvas>
+          <canvas id="cvDiagH" width="330" height="400"></canvas>
+        </div>
+        <canvas id="cvPolar2" width="360" height="380"></canvas>
+        <p class="muted small"><b>Sign convention:</b> LAO positive / RAO negative; CRAN positive / CAUD negative. AP = (0°, 0°). Supine, head-first patient; beam source posterior at AP; image shown as seen from the detector (patient’s left on image right at AP).</p>
+        <p class="warn small"><b>Approximations:</b> the A markers are placed at an <i>assumed</i> descending-aorta level using a rotation-minimising frame, and the C-arm is modelled as an ideal parallel (orthographic) projection about the patient axes (no magnification/parallax, no table tilt/cradle angle, patient assumed lying as in the CT). Confirm the final angle on live fluoroscopy / 3mensio.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= SUMMARY ================= -->
+<section id="tab-summary" class="tab">
+  <div class="noprint card">
+    <h2>One-page summary</h2>
+    <div class="ctrlrow">
+      <label>Anonymised ID (optional) <input type="text" id="sumId" maxlength="24" placeholder="e.g. CASE-017"></label>
+      <label>Age (optional) <input type="text" id="sumAge" maxlength="3" size="4" placeholder="yrs"></label>
+      <label>Note (optional) <input type="text" id="sumNote" maxlength="120" size="40" placeholder="no patient name please"></label>
+      <button class="btn primary" id="btnPrint">Print / Save as PDF</button>
+    </div>
+    <p class="muted small">Do not enter a patient name or other direct identifiers. The summary contains no image pixels and no DICOM identifiers.</p>
+  </div>
+  <div id="printArea" class="page"></div>
+</section>
+
+<!-- ================= HELP ================= -->
+<section id="tab-help" class="tab">
+  <div class="card prose" id="helpText"></div>
+</section>
+</main>
+<footer>Navitor alignment planner · investigational research prototype · all processing local to this browser tab</footer>
+<script>/*__JS__*/</script>
+</body>
+</html>

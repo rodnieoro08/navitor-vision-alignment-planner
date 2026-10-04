@@ -1,4 +1,4 @@
-:root{--bg:#10151b;--panel:#171e26;--card:#1b232d;--line:#2c3744;--txt:#e3eaf1;--mut:#8fa1b3;--acc:#4fc3f7;--warn:#ffb74d;--bad:#ef5350;--ok:#66bb6a}
+:root{--bg:#10151b;--panel:#171e26;--card:#1b232d;--line:#2c3744;--txt:#e3eaf1;--mut:#8fa1b3;--acc:#4fc3f7;--warn:#ffb74d;--bad:#ef5350;--ok:#66bb6a;--suggest:#00e676;--suggest-print:#0b6e2f}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.4 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
 header#top{position:sticky;top:0;z-index:10;background:#0c1116;border-bottom:1px solid var(--line)}
@@ -50,7 +50,8 @@ select,input[type=number],input[type=text]{background:#12181f;color:var(--txt);b
 .ctrlrow{display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:12px;margin:6px 0}
 .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--mut);margin-top:4px}.lg{display:inline-block;width:40px;height:10px;vertical-align:middle;margin-right:4px}
 .selbox{display:flex;gap:14px;font-size:12px}.selbox input{width:64px}
-.selbig{font-size:26px;font-weight:800;color:#fff;margin:8px 0;letter-spacing:.02em}
+.selbig{font-size:26px;font-weight:800;color:var(--suggest);margin:8px 0;letter-spacing:.02em}
+b.sugg{color:var(--suggest);font-weight:800}
 .diagrams{display:flex;gap:8px;flex-wrap:wrap}.diagrams canvas,#cvPolar2{background:#fff;border-radius:4px}
 .prose{max-width:900px}.prose h3{color:var(--acc)}.prose li{margin:3px 0}
 footer{padding:10px 14px;color:var(--mut);font-size:11px;border-top:1px solid var(--line);margin-top:16px}
@@ -59,7 +60,7 @@ footer{padding:10px 14px;color:var(--mut);font-size:11px;border-top:1px solid va
 .page h1{font-size:17px;margin:0 0 2px;color:#111}.page h2{font-size:13px;margin:10px 0 4px;color:#111;border-bottom:1px solid #999}
 .page .disc{border:1.5px solid #b71c1c;padding:5px 7px;font-size:10.5px;margin:6px 0;color:#600}
 .page table{font-size:10.5px}.page th,.page td{border-bottom:1px solid #ccc;color:#111;padding:1px 5px;line-height:1.2}.page th{color:#444}
-.page .big{font-size:24px;font-weight:800;margin:2px 0}
+.page .big{font-size:24px;font-weight:800;margin:2px 0;color:var(--suggest-print)}.page b.sugg{color:var(--suggest-print);font-weight:800}
 .page .imgs{display:flex;gap:8px;align-items:flex-start}.page .imgs img{border:1px solid #ccc}
 .page .small{font-size:10px;color:#333}
 @media print{

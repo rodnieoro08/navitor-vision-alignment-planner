@@ -643,6 +643,42 @@ async function clickAt(pg, key, P, opts) { await setCross(pg, P); const [x, y] =
     ok(JSON.stringify(res[0].n) === JSON.stringify(res[1].n), 'nadirs differ between entry orders');
   });
 
+  // ---------- best-suggestion highlight: GREEN + BOLD with sufficient contrast (C-arm tab selected projection, rank-1 rows, printed summary) ----------
+  const pgg = await newPage('http://127.0.0.1:' + port + '/');
+  await pgg.evaluate(() => { NavApp.loadPhantom(); NavApp.demoMarkers(); });
+  await pgg.click('#tabs button[data-tab=carm]'); await pgg.waitForTimeout(700);
+  const styleOf = (sel) => pgg.evaluate((sel) => {
+    const el = document.querySelector(sel); if (!el) return null;
+    const rgb = (c) => { const m = /rgba?\(([^)]+)\)/.exec(c); const v = m[1].split(',').map((x) => parseFloat(x)); return { r: v[0], g: v[1], b: v[2], a: v.length > 3 ? v[3] : 1 }; };
+    const lin = (u) => { u /= 255; return u <= 0.03928 ? u / 12.92 : Math.pow((u + 0.055) / 1.055, 2.4); }, lum = (c) => 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b);
+    let bg = null; for (let e = el; e; e = e.parentElement) { const c = rgb(getComputedStyle(e).backgroundColor); if (c.a > 0.95) { bg = c; break; } }
+    if (!bg) bg = { r: 255, g: 255, b: 255 };
+    const cs = getComputedStyle(el), fg = rgb(cs.color), L1 = lum(fg), L2 = lum(bg);
+    return { weight: +cs.fontWeight, color: [fg.r, fg.g, fg.b], bg: [bg.r, bg.g, bg.b], contrast: (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05), text: el.textContent };
+  }, sel);
+  const isGreen = (c) => c[1] >= 150 && c[1] > c[0] + 60 && c[1] > c[2] + 40;
+  await test('suggested projection line (C-arm tab "Selected projection" angles) is GREEN and BOLD with contrast >= 7:1 on the dark theme', async () => {
+    const st = await styleOf('#selBig'); ok(/LAO|RAO/.test(st.text) && /CRAN|CAUD/.test(st.text), 'text ' + st.text);
+    ok(st.weight >= 700, 'weight ' + st.weight); ok(isGreen(st.color), 'colour ' + st.color); ok(st.contrast >= 7, 'contrast ' + st.contrast.toFixed(2) + ' on ' + st.bg);
+    console.log('       (selected projection "' + st.text + '": weight ' + st.weight + ', rgb(' + st.color + ') on rgb(' + st.bg + '), contrast ' + st.contrast.toFixed(1) + ':1)');
+  });
+  await test('best-suggestion rows (rank 1 of the best-separation and practical lists) are green+bold with good contrast; other ranks are not highlighted', async () => {
+    const n = await pgg.evaluate(() => document.querySelectorAll('#rankTables b.sugg').length); ok(n === 2, 'expected 2 highlighted rows, found ' + n);
+    for (let i = 1; i <= 2; i++) { const st = await styleOf('#rankTables table:nth-of-type(' + i + ') b.sugg'); ok(st && st.weight >= 700 && isGreen(st.color) && st.contrast >= 4.5, 'row style ' + JSON.stringify(st)); }
+    const other = await pgg.evaluate(() => { const rows = [...document.querySelectorAll('#rankTables tr[data-lao]')].filter((r) => !r.querySelector('b.sugg')); const c = getComputedStyle(rows[0].querySelector('b')).color; return { n: rows.length, c }; });
+    ok(other.n > 0 && !/rgb\(0, 230, 118\)/.test(other.c), 'non-best rows must not be green: ' + JSON.stringify(other));
+  });
+  await test('printed summary (print media, white paper): selected projection angle line is bold green with contrast >= 4.5:1; best entries in "Alternatives" are green too; still exactly one page', async () => {
+    await pgg.click('#tabs button[data-tab=summary]'); await pgg.waitForTimeout(500); await pgg.emulateMedia({ media: 'print' });
+    const st = await styleOf('#printArea .big'); ok(st && /LAO|RAO/.test(st.text), 'text ' + (st && st.text));
+    ok(st.weight >= 700, 'weight ' + st.weight); ok(st.color[1] > st.color[0] + 40 && st.color[1] > st.color[2] + 40, 'colour ' + st.color); ok(st.contrast >= 4.5 && st.bg.every((v) => v === 255), 'contrast ' + st.contrast.toFixed(2) + ' on ' + st.bg);
+    const sumTxt = await pgg.evaluate(() => document.getElementById('printArea').textContent); ok(/arc length from the LV apex end/.test(sumTxt) && !/from bifurcation/.test(sumTxt), 'summary level wording');
+    const alt = await styleOf('#printArea b.sugg'); ok(alt && alt.weight >= 700 && alt.contrast >= 4.5, 'alternatives ' + JSON.stringify(alt));
+    const f = path.join(__dirname, 'out', 'summary_green.pdf'); await pgg.pdf({ path: f, format: 'A4', printBackground: true, margin: { top: '8mm', bottom: '8mm', left: '8mm', right: '8mm' } });
+    ok(/Pages:\s+1\b/.test(cp.execSync('pdfinfo "' + f + '"').toString()), 'summary must stay one page'); await pgg.emulateMedia({ media: 'screen' });
+    console.log('       (printed angle "' + st.text + '": weight ' + st.weight + ', rgb(' + st.color + ') on white, contrast ' + st.contrast.toFixed(1) + ':1)');
+  });
+
   await test('no external network requests were made (only local server / file / blob / data)', async () => {
     const bad = requests.filter((u) => !/^(http:\/\/127\.0\.0\.1:|file:|blob:|data:)/.test(u)); ok(bad.length === 0, bad.join(','));
   });

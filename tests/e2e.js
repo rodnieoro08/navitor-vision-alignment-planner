@@ -679,6 +679,93 @@ async function clickAt(pg, key, P, opts) { await setCross(pg, P); const [x, y] =
     console.log('       (printed angle "' + st.text + '": weight ' + st.weight + ', rgb(' + st.color + ') on white, contrast ' + st.contrast.toFixed(1) + ':1)');
   });
 
+
+  // ---------- Overlap projection panel (Transfer tab): "Overlap projection (2 right / 1 left)" ----------
+  await pgg.click('#tabs button[data-tab=transfer]'); await pgg.waitForTimeout(700);
+  await test('Transfer tab has the panel "Overlap projection (2 right / 1 left)" with entries: overlapping markers, angles, residual, separation, range flag, schematic canvas and "Use in C-arm tab" button', async () => {
+    const t = await pgg.textContent('#ovPanel h2'); ok(t === 'Overlap projection (2 right / 1 left)', 'title ' + t);
+    ok(await pgg.isVisible('#ovPanel'), 'panel visible on the Transfer tab');
+    const rows = await pgg.evaluate(() => [...document.querySelectorAll('#ovBody .ovrow')].map((r) => ({ txt: r.textContent, canvas: !!r.querySelector('canvas'), btn: r.querySelector('button[data-ovuse]') ? r.querySelector('button[data-ovuse]').textContent : null })));
+    ok(rows.length >= 1, 'entries: ' + rows.length);
+    for (const r of rows) { ok(/A_\w\w \+ A_\w\w overlap right, A_\w\w left/.test(r.txt), 'overlap description: ' + r.txt.slice(0, 80)); ok(/(LAO|RAO)[^/]*\/ (CRAN|CAUD)/.test(r.txt), 'angles'); ok(/overlap residual \d+\.\d\d mm/.test(r.txt) && /\d+\.\d mm from the pair/.test(r.txt), 'residual + separation'); ok(/within|outside/.test(r.txt), 'range flag'); ok(r.canvas && r.btn === 'Use in C-arm tab', 'canvas + button'); }
+    const noteTxt = await pgg.textContent('#ovBody'); ok(/image <b>RIGHT<\/b>|image RIGHT/.test(noteTxt) || /RIGHT/.test(noteTxt), 'convention stated');
+    await pgg.locator('#ovPanel').scrollIntoViewIfNeeded(); await pgg.screenshot({ path: path.join(shots, '16_overlap_projection_panel.png') });
+  });
+  await test('overlap values are consistent with an independent projection in the browser: the pair projects onto one point (< 0.5 mm), lies to the image RIGHT of the lone marker, ranking in-range first / small angles first', async () => {
+    const r = await pgg.evaluate(() => {
+      const M = NavApp.M, S = NavApp.S, ov = NavApp.overlapInfo(), f = M.frameAt(S.cl, S.sD), A = ['NL', 'NR', 'LR'].map((k) => S.m.A[k].pos);
+      const lat = (P, lao, cran) => { const ap = M.project(f.T, lao, cran), l = Math.hypot(ap[0], ap[1]); let ux = ap[0] / l, uy = ap[1] / l; if (uy < 0) { ux = -ux; uy = -uy; } const q = M.project(M.sub(P, f.C), lao, cran); return q[0] * uy - q[1] * ux; };
+      return { n: ov.items.length, best: ov.best && ov.best.label, items: ov.items.map((it) => { const a = M.project(A[it.pair[0]], it.lao, it.cran), b = M.project(A[it.pair[1]], it.lao, it.cran);
+        return { label: it.label, ov: Math.hypot(a[0] - b[0], a[1] - b[1]), res: it.residual, right: (lat(A[it.pair[0]], it.lao, it.cran) + lat(A[it.pair[1]], it.lao, it.cran)) / 2 - lat(A[it.lone], it.lao, it.cran), burden: it.burden, inRange: it.inRange, shown: document.querySelectorAll('#ovBody .ovrow')[it.rank - 1].textContent.includes(it.label) }; }) };
+    });
+    ok(r.n >= 1 && r.best, 'has a best suggestion'); r.items.forEach((it) => { ok(it.ov < 0.5 && Math.abs(it.ov - it.res) < 1e-6, 'overlap ' + it.ov); ok(it.right > 2, 'pair right of lone: ' + it.right); ok(it.shown, 'displayed ' + it.label); });
+    const key = r.items.map((i) => (i.inRange ? 0 : 1000) + i.burden); ok(key.every((v, n) => n === 0 || key[n - 1] <= v), 'ranking order');
+    console.log('       (phantom + demo markers, overlap suggestions: ' + r.items.map((i) => i.label + ' res ' + i.res.toFixed(2) + ' mm').join(' | ') + ')');
+  });
+  await test('best overlap suggestion angle text (#ovBig and the rank-1 entry) is GREEN and BOLD (computed style) with contrast >= 7:1 on the dark theme; other entries are not green', async () => {
+    const big = await styleOf('#ovBig'); ok(big && /LAO|RAO/.test(big.text) && /CRAN|CAUD/.test(big.text), 'text ' + (big && big.text));
+    ok(big.weight >= 700, 'weight ' + big.weight); ok(isGreen(big.color), 'colour ' + big.color); ok(big.contrast >= 7, 'contrast ' + big.contrast.toFixed(2));
+    const row = await styleOf('#ovBody .ovrow b.sugg'); ok(row && row.weight >= 700 && isGreen(row.color) && row.contrast >= 7 && row.text === big.text, 'row ' + JSON.stringify(row));
+    const n = await pgg.evaluate(() => document.querySelectorAll('#ovBody b.sugg').length); ok(n === 1, 'only the best entry is highlighted, found ' + n);
+    const same = await pgg.evaluate(() => { const a = getComputedStyle(document.getElementById('ovBig')), b = getComputedStyle(document.getElementById('selBig')); return a.color === b.color && a.fontWeight === b.fontWeight && a.fontSize === b.fontSize; }); ok(same, 'same styling as #selBig');
+    console.log('       (overlap suggestion "' + big.text + '": weight ' + big.weight + ', rgb(' + big.color + ') on rgb(' + big.bg + '), contrast ' + big.contrast.toFixed(1) + ':1)');
+  });
+  await test('schematic fluoro view is drawn (dark screen, coloured diamonds, not blank) for every entry', async () => {
+    const r = await pgg.evaluate(() => [...document.querySelectorAll('#ovBody canvas')].map((cv) => { const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data; let col = 0, dark = 0; for (let i = 0; i < d.length; i += 4) { const mx = Math.max(d[i], d[i + 1], d[i + 2]), mn = Math.min(d[i], d[i + 1], d[i + 2]); if (mx < 30) dark++; else if (mx - mn > 80) col++; } return { col, dark, n: d.length / 4 }; }));
+    ok(r.length >= 1); r.forEach((x) => { ok(x.dark > 0.7 * x.n, 'dark screen ' + x.dark / x.n); ok(x.col > 150, 'coloured marker pixels ' + x.col); });
+  });
+  await test('"Use in C-arm tab" button selects exactly that angle in the C-arm tab (selected projection updates, marked manual); an out-of-range entry would be disabled', async () => {
+    const before = await pgg.evaluate(() => NavApp.overlapInfo().items.map((i) => ({ lao: i.lao, cran: i.cran, label: i.label, inRange: i.inRange })));
+    const k = before.length - 1; ok(before[k].inRange, 'last entry in range');
+    await pgg.click(`#ovBody button[data-ovuse="${k + 1}"]`); await pgg.waitForTimeout(300);
+    let st = await pgg.evaluate(() => ({ sel: NavApp.S.sel, man: NavApp.S.selManual, cur: [...document.querySelectorAll('#ovBody .ovcur')].map((e) => e.textContent) }));
+    ok(st.sel.lao === before[k].lao && st.sel.cran === before[k].cran && st.man, 'selection ' + JSON.stringify(st.sel)); ok(/currently selected/.test(st.cur[k]) && !st.cur.some((c, i) => i !== k && c), 'selected marker shown only on that entry: ' + JSON.stringify(st.cur));
+    await pgg.click('#ovBody button[data-ovuse="1"]'); await pgg.waitForTimeout(300);
+    await pgg.click('#tabs button[data-tab=carm]'); await pgg.waitForTimeout(500);
+    const big = await pgg.textContent('#selBig'); ok(big === before[0].label, 'C-arm tab shows ' + big + ' expected ' + before[0].label);
+    const ev = await pgg.evaluate(() => { const e = NavApp.selEval(), A = ['NL', 'NR', 'LR'], b = NavApp.overlapInfo().best; return { s: e.s, pair: b.pair, lone: b.lone, is21: e.is21, valid: e.valid, margin: e.margin, info: document.getElementById('selInfo').textContent.split('\n')[0] }; });
+    ok(Math.abs(ev.s[ev.pair[0]] - ev.s[ev.pair[1]]) < 0.3 && (ev.s[ev.pair[0]] + ev.s[ev.pair[1]]) / 2 > ev.s[ev.lone] + 2, 'C-arm tab (existing lateral-offset logic) agrees: pair overlapped (' + ev.s.map((v) => v.toFixed(2)) + ') and to the image right of the lone marker');
+    console.log('       (selected in C-arm tab: ' + ev.info + ' | existing 2:1 status: is21=' + ev.is21 + ' valid=' + ev.valid + ' margin ' + ev.margin.toFixed(1) + ' mm)');
+    await pgg.screenshot({ path: path.join(shots, '17_overlap_used_in_carm.png'), fullPage: true });
+    const vals = await pgg.evaluate(() => [document.getElementById('selLao').value, document.getElementById('selCran').value]); ok(+vals[0] === before[0].lao && +vals[1] === before[0].cran, 'angle inputs ' + vals);
+    await pgg.click('#tabs button[data-tab=transfer]'); await pgg.waitForTimeout(400);
+  });
+  await test('printed summary includes the best overlap projection (bold green on white, contrast >= 4.5:1; angle text equals the Transfer-tab best), still exactly one page', async () => {
+    const best = await pgg.evaluate(() => NavApp.overlapInfo().best.label);
+    await pgg.click('#tabs button[data-tab=summary]'); await pgg.waitForTimeout(500); await pgg.emulateMedia({ media: 'print' });
+    const h = await pgg.evaluate(() => [...document.querySelectorAll('#printArea h2')].map((e) => e.textContent)); ok(h.includes('Overlap projection (2 right / 1 left)'), 'headings ' + h.join('|'));
+    const st = await styleOf('#printArea .ovbig b.sugg'); ok(st && st.text === best, 'printed text ' + (st && st.text) + ' vs ' + best); ok(st.weight >= 700, 'weight ' + st.weight);
+    ok(st.color[1] > st.color[0] + 40 && st.color[1] > st.color[2] + 40, 'green ' + st.color); ok(st.contrast >= 4.5 && st.bg.every((v) => v === 255), 'contrast ' + st.contrast.toFixed(2));
+    const txt = await pgg.evaluate(() => document.querySelector('#printArea .ovbig').parentElement.textContent); ok(/overlap right, A_\w\w left/.test(txt) && /overlap residual \d+\.\d\d mm/.test(txt) && /to the image left of the pair/.test(txt), 'summary text: ' + txt.slice(0, 200));
+    const f = path.join(__dirname, 'out', 'summary_overlap.pdf'); await pgg.pdf({ path: f, format: 'A4', printBackground: true, margin: { top: '8mm', bottom: '8mm', left: '8mm', right: '8mm' } });
+    ok(/Pages:\s+1\b/.test(cp.execSync('pdfinfo "' + f + '"').toString()), 'summary must stay one page'); await pgg.emulateMedia({ media: 'screen' });
+    console.log('       (printed overlap projection "' + st.text + '": weight ' + st.weight + ', rgb(' + st.color + ') on white, contrast ' + st.contrast.toFixed(1) + ':1)');
+  });
+  // degenerate / unreachable cases on a separate page
+  const pgd = await newPage('http://127.0.0.1:' + port + '/');
+  await pgd.evaluate(() => { NavApp.loadPhantom(); NavApp.demoMarkers(); }); await pgd.click('#tabs button[data-tab=transfer]'); await pgd.waitForTimeout(600);
+  const setA = (P) => pgd.evaluate((P) => { ['NL', 'NR', 'LR'].forEach((k, i) => { NavApp.S.m.A[k] = { pos: P[i], manual: true }; }); NavApp.onChanged(); }, P);
+  await test('collinear A markers -> clear "Degenerate marker geometry … collinear" message, no suggestion, no green text', async () => {
+    const P = await pgd.evaluate(() => { const M = NavApp.M, S = NavApp.S, f = M.frameAt(S.cl, S.sD); return [-10, 0, 10].map((t) => M.add(f.C, M.add(M.mul(f.N1, t), M.mul(f.N2, 0.3 * t)))); });
+    await setA(P); await pgd.waitForTimeout(500);
+    const t = await pgd.textContent('#ovBody'); ok(/Degenerate marker geometry/.test(t) && /collinear/.test(t), 'message: ' + t.slice(-250)); ok(!(await pgd.$('#ovBig')) && !(await pgd.$('#ovBody b.sugg')) && !(await pgd.$('#ovBody .ovrow')), 'nothing suggested');
+  });
+  await test('overlap beams outside the C-arm range only -> message names the range, entries flagged, button DISABLED, no green best suggestion; the summary then says so', async () => {
+    const found = await pgd.evaluate(() => { const M = NavApp.M, S = NavApp.S, f = M.frameAt(S.cl, S.sD);
+      for (const sg of [1, -1]) for (let t = 0; t < 360; t += 2) { const d = M.add(M.mul(f.N1, Math.cos(t * M.D2R)), M.mul(f.N2, Math.sin(t * M.D2R))), nr = M.cross(f.T, d), c = M.add(f.C, M.mul(nr, 2 * sg));
+        const P = [M.add(c, M.mul(d, 9)), M.sub(c, M.mul(d, 9)), M.sub(f.C, M.mul(nr, 8 * sg))], r = M.overlapProjections(f.C, f.T, P, { minSep: 2 }); if (r.status === 'out-of-range') return { P, labels: r.items.map((i) => i.label) }; }
+      return null; });
+    ok(found, 'a purely out-of-range configuration was constructed'); await setA(found.P); await pgd.waitForTimeout(500);
+    const r = await pgd.evaluate(() => ({ t: document.getElementById('ovBody').textContent, big: !!document.getElementById('ovBig'), sugg: document.querySelectorAll('#ovBody b.sugg').length, dis: [...document.querySelectorAll('#ovBody button[data-ovuse]')].map((b) => b.disabled), best: NavApp.overlapInfo().best }));
+    ok(/outside the C-arm range/.test(r.t) && /⚠/.test(r.t), 'message: ' + r.t.slice(-300)); ok(!r.big && r.sugg === 0 && r.best === null, 'no green suggestion'); ok(r.dis.length >= 1 && r.dis.every(Boolean), 'buttons disabled ' + r.dis);
+    await pgd.click('#tabs button[data-tab=summary]'); await pgd.waitForTimeout(400); const s = await pgd.textContent('#printArea'); ok(/Overlap projection \(2 right \/ 1 left\)/.test(s) && /outside the C-arm range/.test(s), 'summary mentions unreachable');
+    await pgd.click('#tabs button[data-tab=transfer]');
+  });
+  await test('no A markers yet -> panel explains that all three A markers are needed (fresh page)', async () => {
+    const pgn = await newPage('http://127.0.0.1:' + port + '/'); await pgn.click('#tabs button[data-tab=transfer]'); await pgn.waitForTimeout(400);
+    ok(await pgn.isVisible('#ovPanel') && /Overlap projection \(2 right \/ 1 left\)/.test(await pgn.textContent('#ovPanel h2')), 'panel title'); const t = await pgn.textContent('#ovBody'); ok(/needs all three A markers/.test(t), t.slice(-120)); ok(!(await pgn.$('#ovBig')), 'no suggestion');
+  });
+
   await test('no external network requests were made (only local server / file / blob / data)', async () => {
     const bad = requests.filter((u) => !/^(http:\/\/127\.0\.0\.1:|file:|blob:|data:)/.test(u)); ok(bad.length === 0, bad.join(','));
   });

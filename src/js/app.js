@@ -406,7 +406,7 @@
     const Hs = HK.map((k) => S.m.H[k] && S.tr ? { label: 'H_' + k, color: GROUPS.H.color[k], phi: S.tr[k].phi, rho: S.tr[k].rho } : null).filter(Boolean);
     const As = S.cl ? HK.map((k) => S.m.A[k] ? Object.assign({ label: 'A_' + k, color: GROUPS.A.color[k] }, M.angularPosition(S.cl, S.sD, S.m.A[k].pos)) : null).filter(Boolean) : [];
     V.drawPolar($('cvPolar1'), { title: 'Angular positions about the centreline', H: Hs, A: As, beam: beamInfo() });
-    renderCPRCanvas(); renderCPRReadout(); renderTransferTable(As);
+    renderCPRCanvas(); renderCPRReadout(); renderOverlap(); renderTransferTable(As);
   }
   function beamInfo() {
     if (!S.sel || !S.axis || !S.cl) return null; const n3 = M.lateralDir(S.axis.a, S.sel.lao, S.sel.cran); if (!n3) return null;
@@ -469,6 +469,35 @@
     if (S.cl) HK.forEach((k) => { if (!S.m.A[k]) return; const t = M.angularPosition(S.cl, S.sD, S.m.A[k].pos), off = t.rho * Math.cos(t.phi * M.D2R - a); const x = map.px(S.sD), y = map.py(off);
       ctx.fillStyle = GROUPS.A.color[k]; ctx.strokeStyle = '#fff'; ctx.beginPath(); ctx.moveTo(x, y - 6); ctx.lineTo(x + 6, y); ctx.lineTo(x, y + 6); ctx.lineTo(x - 6, y); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.fillStyle = GROUPS.A.color[k]; ctx.fillText('A_' + k, x + 8, y + 12); });
     ctx.fillStyle = '#cfd8dc'; ctx.font = '10px sans-serif'; ctx.fillText('cut plane at ' + S.p.cprAngle + '° about centreline; vertical axis = offset ±45 mm', 8, cv.height - 6);
+  }
+  /* ---- Overlap projection (2 right / 1 left): beam parallel to the vector between two A markers (see M.overlapProjections for the exact conventions) ---- */
+  function overlapInfo() {
+    const pts = HK.map((k) => S.m.A[k] && S.m.A[k].pos);
+    if (!S.cl || S.sD == null || !pts.every(Boolean)) return M.overlapProjections(null, null, null);
+    const f = M.frameAt(S.cl, S.sD); return M.overlapProjections(f.C, f.T, pts, { labels: HK.map((k) => 'A_' + k), minSep: S.p.minMargin });
+  }
+  const ovDesc = (it) => `${it.names.join(' + ')} overlap right, ${it.loneName} left`;
+  function renderOverlap() {
+    const body = $('ovBody'), ov = overlapInfo(), colA = HK.map((k) => GROUPS.A.color[k]), lbl = HK.map((k) => 'A_' + k);
+    let h = `<p class="small muted">Beam parallel to the line between two A markers (descending level${S.sD != null ? ', s = ' + f1(S.sD) + ' mm' : ''}): those two project onto the same point. Offered only when the overlapped pair lies to the image <b>RIGHT</b> of the third marker (side as in the C-arm tab: projected centreline axis vertical, + = image right). LAO and CRAN positive; source posterior, |LAO| ≤ 90°; angles rounded to 1°.</p>`;
+    if (ov.status === 'no-markers') { body.innerHTML = h + `<div class="muted">${esc(ov.message)}</div>`; return; }
+    if (ov.best) h += `<div class="small muted">Best suggestion (smallest angles in range):</div><div id="ovBig" class="selbig">${esc(ov.best.label)}</div><div id="ovBestInfo" class="small">${esc(ovDesc(ov.best))}</div>`;
+    else h += `<div class="warn" id="ovMsg">${esc(ov.message)}</div>`;
+    ov.items.forEach((it) => {
+      const cur = S.sel && S.sel.lao === it.lao && S.sel.cran === it.cran, best = ov.best === it;
+      h += `<div class="ovrow" data-rank="${it.rank}"><canvas width="230" height="118" data-ov="${it.rank}"></canvas><div class="ovtxt"><div><b>#${it.rank} ${esc(ovDesc(it))}</b></div>
+<div class="ovang"><b${best ? ' class="sugg" title="best suggestion"' : ''}>${esc(it.label)}</b>${it.inRange ? '' : ' <span class="warn">⚠ outside the C-arm range (LAO/RAO ±60°, CRAN/CAUD ±40°)</span>'}</div>
+<div>exact beam: LAO ${f1(it.exactLao)}° / CRAN ${f1(it.exactCran)}° → rounded to the 1° grid (search ±3°)</div>
+<div>overlap residual <b>${it.residual.toFixed(2)} mm</b>${it.overlapOk ? '' : ' <span class="warn">(> 1 mm)</span>'} · lone marker ${esc(it.loneName)} is <b>${f1(it.separation)} mm</b> from the pair (${f1(it.lateral)} mm to the image left) · range: ${it.inRange ? '<span style="color:var(--ok)">✔ within</span>' : '<span class="warn">✖ outside</span>'}</div>
+<div class="btnrow tight"><button class="btn sm" data-ovuse="${it.rank}" ${it.inRange ? '' : 'disabled'} title="${it.inRange ? 'Select ' + esc(it.label) + ' in the C-arm tab' : 'outside the C-arm tab range'}">Use in C-arm tab</button><span class="muted small ovcur">${cur ? '✓ currently selected in the C-arm tab' : ''}</span></div></div></div>`;
+    });
+    ov.rejected.forEach((r) => { h += `<div class="ovrej muted">✖ not offered – ${esc(r.detail)}</div>`; });
+    body.innerHTML = h;
+    body.querySelectorAll('canvas[data-ov]').forEach((cv) => V.drawOverlapView(cv, { item: ov.items[+cv.dataset.ov - 1], labels: lbl, colors: colA }));
+  }
+  function useOverlap(rank) {
+    const it = overlapInfo().items.find((x) => x.rank === rank); if (!it || !it.inRange) return null;
+    selectProjection(it.lao, it.cran, true); return { lao: it.lao, cran: it.cran };
   }
   function renderTransferTable(As) {
     if (!S.cl || !S.tr) { $('transferTable').innerHTML = '<div class="card muted">Place centreline + H markers to see the transferred A markers.</div>'; return; }
@@ -546,6 +575,13 @@
     h += `<div>${ev.is21 ? `Distribution: <b>${left.length} left : ${right.length} right</b> (left: ${left.map((x) => x.n).join(', ') || '—'}; right: ${right.map((x) => x.n).join(', ') || '—'}) · margin <b>${f1(ev.margin)} mm</b> · pair–single gap ${f1(ev.gap)} mm` : '<b>Not 2:1 at this angle</b>'}${ev.valid ? '' : ' · <b>below minimum margin</b>'}</div>`;
     h += `<div class="small">Convention: LAO + / RAO −, CRAN + / CAUD −; AP = 0°/0°; supine head-first; image as seen from detector. Lateral offsets (mm, + = image right of projected axis): ${names.map((x) => x.n + ' ' + (x.s >= 0 ? '+' : '') + f1(x.s)).join(', ')}.</div>`;
     h += `<div class="small">Alternatives – best separation: ${S.rankBest.slice(0, 3).map((r, i) => (i === 0 ? '<b class="sugg">' + esc(M.labelAngles(r.lao, r.cran)) + '</b>' : esc(M.labelAngles(r.lao, r.cran))) + ' (' + f1(r.margin) + ' mm)').join('; ') || '—'}. Most practical: ${S.rankPrac.slice(0, 3).map((r, i) => (i === 0 ? '<b class="sugg">' + esc(M.labelAngles(r.lao, r.cran)) + '</b>' : esc(M.labelAngles(r.lao, r.cran))) + ' (' + f1(r.margin) + ' mm)').join('; ') || '—'}.</div>`;
+    { const ov = overlapInfo();
+      h += `<h2>Overlap projection (2 right / 1 left)</h2>`;
+      if (ov.best) {
+        const b = ov.best, others = ov.items.filter((x) => x !== b && x.inRange);
+        h += `<div class="ovbig"><b class="sugg">${esc(b.label)}</b> &nbsp;<span>${esc(ovDesc(b))}</span></div><div class="small">Beam parallel to the line between the two overlapped A markers (exact LAO ${f1(b.exactLao)}° / CRAN ${f1(b.exactCran)}°, rounded to 1°): overlap residual ${b.residual.toFixed(2)} mm · lone marker ${esc(b.loneName)} ${f1(b.separation)} mm to the image left of the pair.${others.length ? ' Other: ' + others.map((x) => esc(x.label) + ' (' + esc(ovDesc(x)) + ')').join('; ') + '.' : ''} Right/left as in the C-arm tab (projected centreline axis vertical, + = image right).</div>`;
+      } else h += `<div class="small">${esc(ov.message)}</div>`;
+    }
     h += `<h2>Marker coordinates (DICOM patient LPS, mm: x + left, y + posterior, z + superior)</h2><table><tr><th>Marker</th><th>x</th><th>y</th><th>z</th><th>angle about centreline*</th><th>radius</th><th>level s</th><th>source</th></tr>`;
     HK.forEach((k) => { const P = S.m.H[k]; if (!P || !S.tr) return; const t = S.tr[k]; h += `<tr><td>H_${k}</td><td>${f1(P[0])}</td><td>${f1(P[1])}</td><td>${f1(P[2])}</td><td>${f1(((t.phi % 360) + 360) % 360)}°</td><td>${f1(t.rho)} mm</td><td>${f1(t.s)} mm</td><td>${(S.auto.hsrc || {})[k] === 'auto' ? `auto-detected (EXPERIMENTAL, conf ${S.auto.result ? S.auto.result.confidence : '?'}%) – verify` : 'user-marked'}</td></tr>`; });
     HK.forEach((k) => { const a = S.m.A[k]; if (!a) return; const t = M.angularPosition(S.cl, S.sD, a.pos); h += `<tr><td>A_${k}</td><td>${f1(a.pos[0])}</td><td>${f1(a.pos[1])}</td><td>${f1(a.pos[2])}</td><td>${f1(((t.phi % 360) + 360) % 360)}°</td><td>${f1(t.rho)} mm</td><td>${f1(S.sD)} mm</td><td>${a.manual ? 'manually adjusted' : 'computed (RMF transfer)'}</td></tr>`; });
@@ -568,6 +604,7 @@
 <li>For each H marker, its angle about the local centreline (in a rotation-minimising frame) and radial offset are measured at the marker's level (or a common annulus level).</li>
 <li>The same angle/offset is re-applied at a chosen level in the descending aorta, giving A_NL, A_NR, A_LR in 3D patient coordinates (draggable).</li>
 <li>All C-arm projections LAO/RAO −60…+60°, CRAN/CAUD −40…+40° (1° grid) are tested: the A markers are projected orthographically; a projection is "2:1" when the signed lateral distances of the three markers from the projected centreline axis split 2 vs 1 and the nearest marker is at least <i>min margin</i> mm from the axis. Margin = distance of the nearest marker to the axis (mm). Gap = lateral distance between the single marker and the nearest pair marker.</li>
+<li><b>Overlap projection (2 right / 1 left)</b> (Transfer tab, also in the summary): for each pair of A markers the beam parallel to the vector between the two markers makes them project onto the same point (LAO/RAO + CRAN/CAUD of that direction, source posterior, |LAO| ≤ 90°, rounded on the 1° grid with the smallest residual within ±3°). Only pairs whose overlap lies to the image <b>right</b> of the third marker are offered (right/left exactly as in the 2:1 logic: projected centreline axis drawn vertical, + = image right); they are ranked in-range first (LAO/RAO ±60°, CRAN/CAUD ±40°), then by smallest angles. Each entry shows the overlap residual and the separation of the lone marker (mm), a schematic fluoro view and <i>Use in C-arm tab</i>. The best suggestion is shown in green bold. Collinear / coincident markers or a beam parallel to the axis give an explanatory message.</li>
 <li>Record the angle; during TAVI place the FlexNav flush port at 12 o'clock and reproduce the 2-left/1-right arrangement in the NCC-isolation view.</li></ol>
 <h3>Conventions</h3><ul>
 <li>Patient coordinates = DICOM LPS: x → patient left, y → posterior, z → superior (mm).</li>
@@ -827,6 +864,7 @@ ${r.warnings.length ? '<ul class="warn small">' + r.warnings.map((w) => '<li>' +
     $('btnDescDefault').onclick = () => { S.p.descS = null; onChanged(); };
     $('refMode').onchange = (e) => { S.p.refMode = e.target.value; HK.forEach((k) => { if (S.m.A[k]) S.m.A[k].manual = false; }); onChanged(); };
     $('radMode').onchange = (e) => { S.p.radMode = e.target.value; onChanged(); }; $('fixedR').oninput = (e) => { S.p.fixedR = +e.target.value || 12; onChanged(); };
+    $('ovBody').addEventListener('click', (e) => { const b = e.target.closest('button[data-ovuse]'); if (b && !b.disabled) useOverlap(+b.dataset.ovuse); });
     $('btnCprEdge').onclick = () => useCprAngle('edge'); $('btnCprFace').onclick = () => useCprAngle('face');
     $('cprAngle').oninput = (e) => { S.p.cprAngle = +e.target.value; cprCache = null; renderAll(); };
     // carm controls
@@ -843,6 +881,6 @@ ${r.warnings.length ? '<ul class="warn small">' + r.warnings.map((w) => '<li>' +
     ['sumId', 'sumAge', 'sumNote'].forEach((id) => $(id).addEventListener('input', () => { if (S.tab === 'summary') buildSummary(); }));
     syncWL(); syncControls(); renderToolList(); renderNow();
   }
-  window.NavApp = { cprBeams, useCprAngle, flowAxisAt, loadSession, saveSession, GROUPS, CL_COLOR, Q, mprFrame, applyOrient, resetOrient, alignToCentreline, crossGeom, sliceGeom, S, M, update, onChanged, loadPhantom, demoMarkers, setTab, selectProjection, handleFiles, allMarkers, placeMarker, views, buildSummary, rescan, rerank, selEval, fitViews, renderNow, setVolume };
+  window.NavApp = { overlapInfo, useOverlap, cprBeams, useCprAngle, flowAxisAt, loadSession, saveSession, GROUPS, CL_COLOR, Q, mprFrame, applyOrient, resetOrient, alignToCentreline, crossGeom, sliceGeom, S, M, update, onChanged, loadPhantom, demoMarkers, setTab, selectProjection, handleFiles, allMarkers, placeMarker, views, buildSummary, rescan, rerank, selEval, fitViews, renderNow, setVolume };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();

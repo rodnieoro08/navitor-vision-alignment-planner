@@ -118,6 +118,26 @@
     return { cls, res: r, nL, nR };
   }
 
+  /* Small schematic fluoro screen for an overlap-projection solution (no CT pixels). o = {item (M.overlapProjections item), labels, colors}.
+   * Dark screen, projected centreline axis drawn vertical (dashed), image LEFT / RIGHT as in the C-arm tab; the overlapped pair is drawn as a filled diamond inside a ring, the lone marker as a single diamond. */
+  function drawOverlapView(canvas, o) {
+    const ctx = canvas.getContext('2d'), W = canvas.width, H = canvas.height, it = o.item, cx = W / 2, cy = H / 2 + 2;
+    ctx.fillStyle = '#05080b'; ctx.fillRect(0, 0, W, H); ctx.strokeStyle = '#33414f'; ctx.lineWidth = 1; ctx.strokeRect(0.5, 0.5, W - 1, H - 1);
+    ctx.setLineDash([6, 4]); ctx.strokeStyle = '#7b8b9b'; ctx.beginPath(); ctx.moveTo(cx, 16); ctx.lineTo(cx, H - 16); ctx.stroke(); ctx.setLineDash([]);
+    ctx.textAlign = 'center'; ctx.font = '10px sans-serif'; ctx.fillStyle = '#8fa1b3'; ctx.fillText('projected axis', cx, 11);
+    ctx.textAlign = 'left'; ctx.fillText('LEFT', 6, H - 5); ctx.textAlign = 'right'; ctx.fillText('RIGHT', W - 6, H - 5);
+    const maxAbs = Math.max(8, ...it.s.map((v) => Math.abs(v))), k = Math.min(6, (cx - 30) / maxAbs);
+    const dia = (x, y, r, fill, stroke, lw) => { ctx.beginPath(); ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y); ctx.closePath(); if (fill) { ctx.fillStyle = fill; ctx.fill(); } ctx.strokeStyle = stroke; ctx.lineWidth = lw; ctx.stroke(); };
+    const pos = (i) => [cx + it.s[i] * k, cy - it.w[i] * k * 0.35];
+    ctx.textAlign = 'center';
+    const [lx, ly] = pos(it.lone); dia(lx, ly, 9, o.colors[it.lone], '#000', 1.2);
+    ctx.fillStyle = '#e3eaf1'; ctx.font = 'bold 11px sans-serif'; ctx.fillText(o.labels[it.lone], lx, ly - 15); ctx.font = '10px sans-serif'; ctx.fillStyle = '#8fa1b3'; ctx.fillText('alone', lx, ly + 25);
+    const [p1x, p1y] = pos(it.pair[0]), [p2x, p2y] = pos(it.pair[1]);
+    dia(p2x, p2y, 14, null, o.colors[it.pair[1]], 2.5); dia(p1x, p1y, 8, o.colors[it.pair[0]], '#000', 1.2);
+    ctx.fillStyle = '#e3eaf1'; ctx.font = 'bold 11px sans-serif'; ctx.fillText(o.labels[it.pair[0]] + ' + ' + o.labels[it.pair[1]], (p1x + p2x) / 2, Math.min(p1y, p2y) - 20); ctx.font = '10px sans-serif'; ctx.fillStyle = '#8fa1b3';
+    ctx.fillText('overlap (Δ ' + it.residual.toFixed(2) + ' mm)', (p1x + p2x) / 2, Math.max(p1y, p2y) + 28);
+  }
+
   /* Schematic cross-section (no CT pixels): H and A angular positions about the centreline, plus the beam plane trace. */
   function drawPolar(canvas, o) {
     const ctx = canvas.getContext('2d'), W = canvas.width, H = canvas.height, cx = W / 2, cy = H / 2 + 6, R = Math.min(W, H) / 2 - 34;
@@ -172,5 +192,5 @@
     return { px: (s) => s / cl.length * (W - 1), py: (off) => H / 2 + off / mmPerPx, mmPerPx };
   }
 
-  root.NavViews = { PlaneView, drawHeatmap, heatmapAngleAt, drawProjDiagram, drawPolar, renderCPR, plasma, HM };
+  root.NavViews = { PlaneView, drawHeatmap, heatmapAngleAt, drawProjDiagram, drawOverlapView, drawPolar, renderCPR, plasma, HM };
 })(typeof self !== 'undefined' ? self : this);

@@ -328,6 +328,67 @@
     c.s = s; c.degenerate = false;
     return c;
   }
+  /* ---------- Overlap projection (2 right / 1 left) ----------
+   * For every PAIR of the three markers the overlap beam is parallel to the vector between the two markers (d = (Pj - Pi)/|Pj - Pi|): both project onto the same image point.
+   * The line of sight d / -d is returned in the physically reachable representation of beamAngles() (source posterior, |LAO| <= 90, LAO/CRAN positive).
+   * The 1 degree grid around the exact angles (+-3 deg in LAO and CRAN) is searched for the smallest residual after rounding (residual = distance of the two overlapped markers on the image, mm; ties -> smaller angle burden).
+   * SIDE CONVENTION (identical to evalViewFast / the C-arm tab 2:1 logic): image coordinates are taken with the projected centreline axis drawn pointing UP (its cranial-most direction
+   * on screen); the lateral coordinate s of a marker is its signed distance from the plane spanned by axis and beam, positive = image RIGHT of the axis. The overlapped pair is "on the
+   * right" when s_pair (mean of the two) - s_lone >= minSep, i.e. the pair lies to the image right of the lone marker. For markers at one level (perpendicular to the axis) and a beam
+   * perpendicular to the axis this is exactly the horizontal order on a screen on which the projected axis is vertical.
+   * C, a: point on the axis and unit axis direction; pts: 3 marker positions; opts: labels, minSep (mm, default 2), tol (residual limit, mm, default 1), search (deg, default 3).
+   * Returns { status, message, items, rejected, best }:
+   *   items    = right-side solutions (in-range first, then smallest angle burden), each { rank, pair:[i,j], lone, names, text, exactLao, exactCran, lao, cran, label, inRange, burden,
+   *              residual, overlapOk, separation (2D image distance lone -> pair mid-point, mm), lateral (s_pair - s_lone, mm), s:[per-marker lateral coordinate, mm, + = image right of the projected axis], w:[per-marker position along the projected axis, mm] }
+   *   rejected = pairs not offered with a reason code: 'coincident' | 'collinear' | 'axis-parallel' | 'pair-left' (pair would be left of the lone marker) | 'no-separation' (lateral gap < minSep)
+   *   best     = first in-range item (or null); status 'ok' | 'no-markers' | 'no-solution' | 'out-of-range' (only out-of-range solutions) | 'degenerate' (all pairs degenerate / collinear) */
+  function overlapProjections(C, a, pts, opts) {
+    opts = opts || {};
+    const labels = opts.labels || ['A_NL', 'A_NR', 'A_LR'], minSep = opts.minSep == null ? 2 : opts.minSep, tol = opts.tol == null ? 1 : opts.tol, W = opts.search == null ? 3 : opts.search;
+    const out = { status: 'ok', message: '', items: [], rejected: [], best: null };
+    if (!C || !a || !pts || pts.length !== 3 || !pts.every(Boolean)) { out.status = 'no-markers'; out.message = 'Overlap projection needs all three A markers (centreline + three H markers).'; return out; }
+    const pairs = [[0, 1, 2], [0, 2, 1], [1, 2, 0]];
+    for (const [i, j, k] of pairs) {
+      const names = [labels[i], labels[j]], base = { pair: [i, j], lone: k, names, loneName: labels[k], text: labels[i] + ' + ' + labels[j] };
+      const v = sub(pts[j], pts[i]), vl = len(v);
+      if (vl < 0.5) { out.rejected.push(Object.assign(base, { reason: 'coincident', detail: `${base.text}: the two markers coincide (${vl.toFixed(2)} mm apart) – no defined overlap direction` })); continue; }
+      const d0 = mul(v, 1 / vl);
+      const lone = sub(pts[k], pts[i]), off = len(sub(lone, mul(d0, dot(lone, d0))));  // distance of the lone marker from the line through the pair
+      if (off < minSep) { out.rejected.push(Object.assign(base, { reason: 'collinear', detail: `${base.text}: markers are (nearly) collinear – the lone marker is only ${off.toFixed(1)} mm from the pair's line of sight, so all three would overlap` })); continue; }
+      const ex = beamAngles(d0);
+      if (len(cross(a, ex.d)) < Math.sin(10 * D2R)) { out.rejected.push(Object.assign(base, { reason: 'axis-parallel', exactLao: ex.lao, exactCran: ex.cran, detail: `${base.text}: the overlap beam is within 10° of the centreline axis – the projected axis (side reference) is undefined` })); continue; }
+      // grid search around the exact angles
+      let bestC = null;
+      const l0 = Math.round(ex.lao), c0 = Math.round(ex.cran);
+      for (let dl = -W; dl <= W; dl++) for (let dc = -W; dc <= W; dc++) {
+        const lao = l0 + dl, cran = c0 + dc, d = beamDir(lao, cran), vp = sub(v, mul(d, dot(v, d))), res = len(vp), burden = Math.hypot(lao, cran);
+        const inR = lao >= LAO_MIN && lao <= LAO_MAX && cran >= CRAN_MIN && cran <= CRAN_MAX;
+        if (!bestC || res < bestC.res - 1e-6 || (Math.abs(res - bestC.res) <= 1e-6 && (inR && !bestC.inR || (inR === bestC.inR && burden < bestC.burden)))) bestC = { lao, cran, res, burden, inR };
+      }
+      const lao = bestC.lao + 0, cran = bestC.cran + 0, ev = evalViewFast(C, a, pts, lao, cran, 0);
+      if (ev.degenerate) { out.rejected.push(Object.assign(base, { reason: 'axis-parallel', exactLao: ex.lao, exactCran: ex.cran, detail: `${base.text}: beam within 10° of the centreline axis` })); continue; }
+      const sp = (ev.s[i] + ev.s[j]) / 2, lateral = sp - ev.s[k];
+      // image coordinates for the schematic: x = lateral s (+ = image right of the projected axis), y = position along the projected axis (axis drawn pointing up)
+      const bI = imageBasis(lao, cran), dd = beamDir(lao, cran), ap = sub(a, mul(dd, dot(a, dd))), wdir = mul(norm(ap), dot(norm(ap), bI.up) < 0 ? -1 : 1);
+      const sw = pts.map((P) => dot(sub(P, C), wdir));
+      const mid = [(ev.s[i] + ev.s[j]) / 2, (sw[i] + sw[j]) / 2], sep = Math.hypot(ev.s[k] - mid[0], sw[k] - mid[1]);
+      const rec = Object.assign(base, { exactLao: ex.lao, exactCran: ex.cran, lao, cran, label: labelAngles(lao, cran), inRange: bestC.inR, burden: bestC.burden, residual: bestC.res, overlapOk: bestC.res <= tol,
+        separation: sep, lateral, s: ev.s.slice(), w: sw });
+      if (Math.abs(lateral) < minSep) { out.rejected.push(Object.assign(rec, { reason: 'no-separation', detail: `${base.text}: lone marker ${labels[k]} is only ${Math.abs(lateral).toFixed(1)} mm to the side of the pair (< ${minSep} mm) – left/right not defined` })); continue; }
+      if (lateral < 0) { out.rejected.push(Object.assign(rec, { reason: 'pair-left', detail: `${base.text} overlap on the image LEFT of ${labels[k]} at ${labelAngles(lao, cran)} (the 2 right / 1 left arrangement is not possible for this pair)` })); continue; }
+      rec.side = 'right'; out.items.push(rec);
+    }
+    out.items.sort((p, q) => (q.inRange - p.inRange) || (p.burden - q.burden));
+    out.items.forEach((o, n) => { o.rank = n + 1; });
+    out.best = out.items.find((o) => o.inRange) || null;
+    if (!out.items.length) {
+      const deg = out.rejected.every((r) => r.reason === 'coincident' || r.reason === 'collinear' || r.reason === 'axis-parallel');
+      out.status = deg ? 'degenerate' : 'no-solution';
+      out.message = deg ? 'Degenerate marker geometry: ' + out.rejected.map((r) => r.detail).join(' · ') : 'No pair can be overlapped with the other marker alone on the LEFT (for each pair the overlap beam puts the pair on the image left of the lone marker): ' + out.rejected.map((r) => r.detail).join(' · ');
+    } else if (!out.best) { out.status = 'out-of-range'; out.message = 'Overlap beams with the pair on the right exist but all lie outside the C-arm range (LAO/RAO ±60°, CRAN/CAUD ±40°): ' + out.items.map((o) => `${o.text}: ${o.label}`).join(' · '); }
+    return out;
+  }
+
   const LAO_MIN = -60, LAO_MAX = 60, CRAN_MIN = -40, CRAN_MAX = 40;
   function scanProjections(C, a, pts, opts) {
     opts = opts || {};
@@ -383,6 +444,6 @@
 
   return { D2R, R2D, add, sub, mul, dot, cross, len, norm, lerp, dist, wrap180,
     catmullRom, resample, gaussSmooth, arcLengths, rmf, buildCentreline, centrelineOrder, orientCentreline, defaultDescLevel, frameAt, nearestS, angularPosition, positionFromAngle, transferMarkers, angularGaps,
-    beamDir, beamAngles, cutPlaneBeams, imageBasis, lateralDir, project, labelAngles, evalViewProjected, evalViewFast, classify, scanProjections, rankProjections, gridAngles,
+    beamDir, beamAngles, cutPlaneBeams, imageBasis, lateralDir, project, labelAngles, evalViewProjected, evalViewFast, overlapProjections, classify, scanProjections, rankProjections, gridAngles,
     LAO_MIN, LAO_MAX, CRAN_MIN, CRAN_MAX };
 });

@@ -171,4 +171,74 @@ test('defaultDescLevel (arc length from the apex end) = 80 mm beyond the highest
   near(cl.length - oldDef, d, 0.2, 'new = L - old for the same geometry');
 });
 
+/* ---------- C-arm angulation of the stretched-view cut plane ---------- */
+test('beamAngles is the inverse of beamDir over the whole LAO/CRAN range; -d gives the same representation (source posterior)', () => {
+  for (let lao = -89; lao <= 89; lao += 7) for (let cran = -89; cran <= 89; cran += 6) {
+    const d = M.beamDir(lao, cran), a = M.beamAngles(d), b = M.beamAngles(M.mul(d, -1));
+    near(a.lao, lao, 1e-9, 'lao'); near(a.cran, cran, 1e-9, 'cran'); near(b.lao, lao, 1e-9, 'lao(-d)'); near(b.cran, cran, 1e-9, 'cran(-d)');
+  }
+  const l = M.beamAngles([1, 0, 0]); near(l.lao, 90, 1e-9); near(l.cran, 0, 1e-9);
+  const r = M.beamAngles([-1, 0, 0]); near(r.lao, 90, 1e-9, '(-1,0,0) -> equivalent LAO 90');
+  const c = M.beamAngles([0, 0, -1]); near(c.cran, -90, 1e-9);
+});
+test('KNOWN cut plane -> KNOWN angulation (vertical straight centreline, N1 = +x): face-on AP / edge-on LAO 90 at 0 deg; 30 deg -> edge-on LAO 60, face-on RAO 30; 90 deg swaps', () => {
+  const cl = M.buildCentreline([[0, 0, 100], [0, 0, 0], [0, 0, -100]], { smoothMm: 0, n1start: [1, 0, 0] }), f = M.frameAt(cl, 100);
+  near(f.T[2], -1, 1e-9, 'apex-first points down'); near(f.N1[0], 1, 1e-9);
+  const exp = { 0: [90, 0, 0, 0], 30: [60, 0, -30, 0], 90: [0, 0, 90, 0], 150: [-60, 0, 30, 0] };    // [edge lao, edge cran, face lao, face cran]
+  for (const a of Object.keys(exp)) { const b = M.cutPlaneBeams(f, +a), e = exp[a]; near(b.edge.lao, e[0], 1e-9, 'edge lao @' + a); near(b.edge.cran, e[1], 1e-9, 'edge cran @' + a); near(b.face.lao, e[2], 1e-9, 'face lao @' + a); near(b.face.cran, e[3], 1e-9, 'face cran @' + a); }
+});
+test('KNOWN tilted axis: centreline tilted 20 deg cranially (towards +z) and 15 deg to the left; edge-on/face-on beams are exactly perpendicular to the axis and equal an independently constructed plane normal', () => {
+  const T = M.norm([Math.sin(15 * D) * Math.cos(20 * D) * -1, 0.0, -Math.sin(20 * D)]);          // descending direction (apex-first), tilted
+  const P0 = [0, 0, 0], ctrl = [M.add(P0, M.mul(T, -150)), P0, M.add(P0, M.mul(T, 150))];
+  const cl = M.buildCentreline(ctrl, { smoothMm: 0, n1start: [0, 1, 0] }), f = M.frameAt(cl, cl.length / 2);
+  for (const alpha of [0, 25, 77, 123, 200, 301]) {
+    const b = M.cutPlaneBeams(f, alpha), e = b.e, n = b.n;
+    // independent construction: e is the unit vector in the cross-section plane at angle alpha from N1 (towards N2); n completes the right-handed triad (T, e, n)
+    const e2 = M.add(M.mul(f.N1, Math.cos(alpha * D)), M.mul(f.N2, Math.sin(alpha * D))), n2 = M.cross(f.T, e2);
+    ok(M.dist(e, e2) < 1e-12 && M.dist(n, n2) < 1e-12, 'frame'); near(M.dot(e, f.T), 0, 1e-9); near(M.dot(n, f.T), 0, 1e-9); near(M.len(n), 1, 1e-9);
+    const de = M.beamDir(b.edge.lao, b.edge.cran), df = M.beamDir(b.face.lao, b.face.cran);
+    near(Math.abs(M.dot(de, e)), 1, 1e-9, 'edge beam == +-e'); near(Math.abs(M.dot(df, n)), 1, 1e-9, 'face beam == +-n'); near(M.dot(de, f.T), 0, 1e-9, 'edge beam perpendicular to axis'); near(M.dot(df, f.T), 0, 1e-9, 'face beam perpendicular to axis');
+    ok(de[1] <= 1e-9 && df[1] <= 1e-9, 'source posterior');
+  }
+});
+test('face-on(alpha) == edge-on(alpha + 90 deg) (same line of sight); the plane is edge-on in its edge beam and face-on in its face beam (projection test)', () => {
+  const cl = M.buildCentreline(APEX_FIRST, { smoothMm: 4 });
+  for (const sFrac of [0.2, 0.5, 0.8]) for (const alpha of [0, 40, 95, 190, 355]) {
+    const f = M.frameAt(cl, cl.length * sFrac), b = M.cutPlaneBeams(f, alpha), b90 = M.cutPlaneBeams(f, alpha + 90);
+    near(b.face.lao, b90.edge.lao, 1e-9); near(b.face.cran, b90.edge.cran, 1e-9);
+    // points in the cut plane: edge-on -> all project onto ONE line (image-x offsets = 0 relative to the projected axis direction); face-on -> offsets span both directions
+    const pts = [[0, 0], [10, 0], [0, 15], [-8, 22], [12, -9]].map(([u, v]) => M.add(M.add(f.C, M.mul(f.T, u)), M.mul(b.e, v)));
+    const proj = (lao, cran) => pts.map((p) => M.project(M.sub(p, f.C), lao, cran));
+    const pe = proj(b.edge.lao, b.edge.cran), pf = proj(b.face.lao, b.face.cran);
+    const ax = M.project(f.T, b.edge.lao, b.edge.cran), axl = Math.hypot(ax[0], ax[1]), perpE = pe.map((q) => Math.abs((q[0] * ax[1] - q[1] * ax[0]) / axl));
+    ok(Math.max(...perpE) < 1e-9, 'plane not edge-on: ' + Math.max(...perpE));                      // all in-plane points lie on the projected axis line
+    const axf = M.project(f.T, b.face.lao, b.face.cran), axfl = Math.hypot(axf[0], axf[1]), perpF = pf.map((q) => Math.abs((q[0] * axf[1] - q[1] * axf[0]) / axfl));
+    ok(Math.max(...perpF) > 14, 'plane not face-on: ' + Math.max(...perpF));                        // in-plane offsets e (up to 22 mm) are fully visible
+  }
+});
+test('2:1 marker split in the cut-plane views uses the same projection maths: edge-on lateral offsets = |n.(P-C)|, face-on = |e.(P-C)| (what the stretched view shows); any in-plane beam gives the edge-on offsets', () => {
+  const cl = M.buildCentreline(APEX_FIRST, { smoothMm: 4 }), f = M.frameAt(cl, 300), pts = [[6, 3, 4], [-4, 9, -3], [8, -7, 2]].map((q) => M.add(f.C, M.add(M.add(M.mul(f.N1, q[0]), M.mul(f.N2, q[1])), M.mul(f.T, q[2]))));
+  for (const alpha of [0, 33, 120, 250]) {
+    const b = M.cutPlaneBeams(f, alpha), ev = (lao, cran) => M.evalViewFast(f.C, f.T, pts, lao, cran, 0);
+    const re = ev(b.edge.lao, b.edge.cran), rf = ev(b.face.lao, b.face.cran);
+    pts.forEach((p, i) => { const q = M.sub(p, f.C); near(Math.abs(re.s[i]), Math.abs(M.dot(q, b.n)), 1e-9, 'edge-on offset'); near(Math.abs(rf.s[i]), Math.abs(M.dot(q, b.e)), 1e-9, 'face-on offset'); });
+    // an in-plane beam that is not perpendicular to the axis (60 deg from e towards T) -> same lateral offsets as edge-on
+    const dIn = M.add(M.mul(b.e, Math.cos(60 * D)), M.mul(f.T, Math.sin(60 * D))), a2 = M.beamAngles(dIn), r2 = ev(a2.lao, a2.cran);
+    pts.forEach((p, i) => near(Math.abs(r2.s[i]), Math.abs(re.s[i]), 1e-9, 'in-plane beam offsets'));
+    ok(JSON.stringify(r2.s.map((v) => v < 0)) === JSON.stringify(re.s.map((v) => v < 0)) || JSON.stringify(r2.s.map((v) => v < 0)) === JSON.stringify(re.s.map((v) => v >= 0)), 'same split');
+  }
+});
+test('round trip with the C-arm grid: the rounded edge/face angles are valid scan grid cells and the scan classification at that cell equals evalViewFast there', () => {
+  const cl = M.buildCentreline(M.orientCentreline(APEX_FIRST, ROOT_PTS).ctrl, { smoothMm: 4 }), sD = M.defaultDescLevel(cl), tr = M.transferMarkers(cl, ROOT_H, { sD, refMode: 'own', radiusMode: 'keep' });
+  const A = ['NL', 'NR', 'LR'].map((k) => tr[k].A), fr = M.frameAt(cl, sD), scan = M.scanProjections(fr.C, fr.T, A, { minMargin: 2 });
+  let tested = 0;
+  for (const alpha of [0, 20, 45, 70, 100, 130, 160, 200, 250, 300, 340]) for (const kind of ['edge', 'face']) {
+    const b = M.cutPlaneBeams(fr, alpha)[kind], lao = Math.round(b.lao), cran = Math.round(b.cran);
+    if (lao < M.LAO_MIN || lao > M.LAO_MAX || cran < M.CRAN_MIN || cran > M.CRAN_MAX) continue;
+    const li = lao - scan.laoMin, ci = cran - scan.cranMin, k = ci * scan.nL + li, r = M.evalViewFast(fr.C, fr.T, A, lao, cran, 2);
+    ok(!!scan.is21[k] === r.is21 && !!scan.valid[k] === r.valid, 'is21/valid @' + alpha + kind); if (r.valid) near(scan.margin[k], r.margin, 1e-4, 'margin'); tested++;
+  }
+  ok(tested >= 6, 'enough in-range cases: ' + tested);
+});
+
 summary();

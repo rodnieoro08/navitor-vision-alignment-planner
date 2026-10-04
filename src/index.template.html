@@ -131,7 +131,7 @@
       <label class="rng" id="fixedRow">Fixed radius <input type="number" id="fixedR" min="2" max="40" step="0.5" value="12" style="width:70px"> mm</label>
       <h3>Straightened view</h3>
       <label class="rng">Cut-plane angle <input type="range" id="cprAngle" min="0" max="359" value="0"><output id="cprAngleO"></output></label>
-      <p class="muted small">Cut-plane angle is measured about the centreline from the RMF reference axis N1.</p>
+      <p class="muted small">Cut-plane angle is measured about the centreline from the RMF reference axis N1. The overlay on the stretched view shows the C-arm angulation (LAO/CRAN positive) of the beams edge-on and face-on to this cut plane.</p>
     </aside>
     <div class="tmain">
       <div class="xrow">
@@ -139,7 +139,8 @@
         <div class="vwrap"><div class="vtitle" id="titleDesc">Cross-section at descending level (A markers – drag to adjust)</div><canvas id="cvXDesc" width="400" height="400"></canvas></div>
         <div class="vwrap"><canvas id="cvPolar1" width="360" height="400"></canvas></div>
       </div>
-      <div class="vwrap wide"><div class="vtitle">Stretched (straightened) vessel view – LV apex (left) → descending aorta (right); vertical lines = annulus (orange) and descending (cyan) level</div><canvas id="cvCPR" width="1000" height="260"></canvas></div>
+      <div class="vwrap wide rel"><div class="vtitle">Stretched (straightened) vessel view – LV apex (left) → descending aorta (right); vertical lines = annulus (orange) and descending (cyan) level</div><canvas id="cvCPR" width="1000" height="260"></canvas><div id="cprReadout" class="cprOv" aria-live="polite"></div>
+        <div class="btnrow tight cprUse"><button class="btn sm" id="btnCprEdge">Use edge-on angle in C-arm tab</button><button class="btn sm" id="btnCprFace">Use face-on angle in C-arm tab</button><span id="cprUseMsg" class="muted small"></span></div></div>
       <div id="transferTable"></div>
     </div>
   </div>

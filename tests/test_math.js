@@ -241,4 +241,90 @@ test('round trip with the C-arm grid: the rounded edge/face angles are valid sca
   ok(tested >= 6, 'enough in-range cases: ' + tested);
 });
 
+/* ---------- overlap projection (2 right / 1 left) ---------- */
+// independent image maths for the checks: M.project() (image basis, x right / y up) and the 2D projected axis
+function imgOf(P, lao, cran) { return M.project(P, lao, cran); }
+function lateral2D(C, a, P, lao, cran) {   // signed distance (image RIGHT of the projected axis drawn upward = +) computed purely in 2D
+  const ap = M.project(a, lao, cran), l = Math.hypot(ap[0], ap[1]); let ux = ap[0] / l, uy = ap[1] / l; if (uy < 0 || (Math.abs(uy) < 1e-12 && ux < 0)) { ux = -ux; uy = -uy; }
+  const q = imgOf(M.sub(P, C), lao, cran); return q[0] * uy - q[1] * ux;   // component along the image-right normal (uy, -ux)
+}
+test('overlap projection: markers constructed for a known overlap beam (LAO 45 / CRAN 0): pair vector || beam -> exact angles, residual ~ 0 (<= 1e-6 at the exact angle), pair on the RIGHT of the lone marker', () => {
+  const C = [0, 0, 0], a = [0, 0, 1], d = M.beamDir(45, 0), mid = [5, 5, 0];      // at LAO 45 image-right = (+x,+y)/sqrt2 (z x d)
+  const pts = [M.add(mid, M.mul(d, 9)), M.add(mid, M.mul(d, -9)), [-4, -4, 0]];
+  near(imgOf([1, 1, 0], 45, 0)[0], Math.SQRT2, 1e-9, 'hand-derived: at LAO 45 a point at (+1,+1,0) mm appears sqrt2 mm to the image RIGHT');
+  const r = M.overlapProjections(C, a, pts, { labels: ['P1', 'P2', 'L'] });
+  const it = r.items.find((x) => x.pair.join() === '0,1');
+  ok(it && it.lone === 2 && it.side === 'right', 'pair (P1,P2) offered with the pair on the right');
+  near(it.exactLao, 45, 1e-9, 'exact LAO'); near(it.exactCran, 0, 1e-9, 'exact CRAN'); ok(it.lao === 45 && it.cran === 0, 'rounded ' + it.lao + '/' + it.cran);
+  const pa = imgOf(pts[0], 45, 0), pb = imgOf(pts[1], 45, 0); near(Math.hypot(pa[0] - pb[0], pa[1] - pb[1]), 0, 1e-9, 'independent 2D check: pair overlaps'); near(it.residual, 0, 1e-9, 'residual');
+  const lo = imgOf(pts[2], 45, 0); ok(pa[0] > lo[0] + 5, 'independent 2D check: pair is to the RIGHT of the lone marker on the image (x ' + pa[0].toFixed(2) + ' vs ' + lo[0].toFixed(2) + ')');
+  near(it.separation, Math.abs(pa[0] - lo[0]), 1e-9, 'separation of the lone marker'); near(it.lateral, pa[0] - lo[0], 1e-9, 'lateral gap');
+  ok(it.inRange && r.best === it, 'in range and best');
+});
+test('overlap projection: the mirrored arrangement (pair on the LEFT of the lone marker) is NOT offered for that pair (reason pair-left); a degenerate-free set may still offer other pairs', () => {
+  const C = [0, 0, 0], a = [0, 0, 1], d = M.beamDir(45, 0), mid = [-5, -5, 0];
+  const pts = [M.add(mid, M.mul(d, 9)), M.add(mid, M.mul(d, -9)), [4, 4, 0]];
+  const r = M.overlapProjections(C, a, pts, { labels: ['P1', 'P2', 'L'] });
+  ok(!r.items.some((x) => x.pair.join() === '0,1'), 'pair (P1,P2) must not be offered'); const rej = r.rejected.find((x) => x.pair.join() === '0,1');
+  ok(rej && rej.reason === 'pair-left' && rej.lateral < -5, 'rejected as pair-left: ' + (rej && rej.reason));
+  const pa = imgOf(pts[0], 45, 0), lo = imgOf(pts[2], 45, 0); ok(pa[0] < lo[0], 'independent: pair is LEFT of the lone marker');
+});
+test('overlap projection: side agrees with 2D lateral() maths on TILTED axes and all pairs/seeds (residual after rounding < 0.4 mm)', () => {
+  const C = [3, -2, 10], a = M.norm([0.12, 0.3, 0.94]);
+  let nItems = 0, nRej = 0;
+  for (const [lao, cran] of [[20, 10], [-35, 15], [40, -12], [-15, -25], [55, 5], [-50, -5]]) for (const ang of [10, 70, 190]) {
+    // markers on a ring perpendicular to the axis such that pair (0,1) is parallel to the beam beamDir(lao,cran) (beam component along the axis is kept by construction)
+    const d = M.beamDir(lao, cran), mid = M.add(C, M.mul(M.norm(M.cross(M.cross(a, d), a)), 4 * Math.cos(ang * D)));
+    const pts = [M.add(mid, M.mul(d, 10)), M.add(mid, M.mul(d, -10)), M.add(C, M.add(M.mul(M.norm(M.cross(a, d)), -9 * Math.sin(ang * D) - 6), M.mul(a, 3)))];
+    const r = M.overlapProjections(C, a, pts, { labels: ['A', 'B', 'L'], minSep: 1 });
+    const all = [...r.items, ...r.rejected].find((x) => x.pair.join() === '0,1' && x.lao !== undefined);
+    ok(all, 'pair (A,B) evaluated'); ok(Math.abs(all.lao - lao) <= 1 && Math.abs(all.cran - cran) <= 1, `exact beam recovered: ${all.exactLao.toFixed(2)}/${all.exactCran.toFixed(2)} vs ${lao}/${cran}`);
+    ok(all.residual < 0.4, 'residual ' + all.residual); nItems += r.items.length; nRej += r.rejected.length;
+    const sP = (lateral2D(C, a, pts[0], all.lao, all.cran) + lateral2D(C, a, pts[1], all.lao, all.cran)) / 2, sL = lateral2D(C, a, pts[2], all.lao, all.cran);
+    near(all.lateral, sP - sL, 1e-6, 'lateral gap equals the independent 2D computation'); ok((all.lateral > 0) === (all.side === 'right'), 'side flag consistent with sign');
+  }
+  ok(nItems + nRej >= 18, 'cases evaluated');
+});
+test('overlap projection: 1 deg rounding grid search keeps the residual small and equals the brute-force minimum over +-3 deg; exact-angle residual is 0', () => {
+  const C = [0, 0, 0], a = [0, 0, 1], P = [[12.3, -4.1, 1.5], [-6.2, 10.7, -2.0], [-8.0, -9.0, 0.5]];
+  const r = M.overlapProjections(C, a, P, { minSep: 0.5 }), all = [...r.items, ...r.rejected];
+  ok(all.length === 3, 'three pairs');
+  for (const it of all) {
+    const [i, j] = it.pair, v = M.sub(P[j], P[i]); let best = 1e9;
+    for (let l = Math.round(it.exactLao) - 3; l <= Math.round(it.exactLao) + 3; l++) for (let c = Math.round(it.exactCran) - 3; c <= Math.round(it.exactCran) + 3; c++) { const d = M.beamDir(l, c); best = Math.min(best, M.len(M.sub(v, M.mul(d, M.dot(v, d))))); }
+    near(it.residual, best, 1e-9, 'residual = brute-force minimum'); const de = M.beamDir(it.exactLao, it.exactCran); near(M.len(M.sub(v, M.mul(de, M.dot(v, de)))), 0, 1e-9, 'exact beam residual 0');
+    ok(it.residual < 0.012 * M.len(v) + 1e-9, 'rounded residual bounded by ~0.7 deg of the pair distance');
+  }
+  const rank = r.items.map((x) => (x.inRange ? 0 : 1000) + x.burden); ok(rank.every((v, n) => n === 0 || rank[n - 1] <= v), 'ranked in-range first, then by smallest angles');
+});
+test('overlap projection: out-of-range beam (exact LAO 80) is listed with inRange=false, never the "best"; status out-of-range when it is the only solution', () => {
+  const C = [0, 0, 0], a = [0, 0, 1], d = M.beamDir(80, 0), mid = [4, 4, 0];                 // image right at LAO 80 ~ (+x,+y) -> pair on the right
+  const right = M.cross([0, 0, 1], d), pts = [M.add(M.add(mid, M.mul(right, 3)), M.mul(d, 9)), M.add(M.add(mid, M.mul(right, 3)), M.mul(d, -9)), M.add(mid, M.mul(right, -9))];
+  const r = M.overlapProjections(C, a, pts, { labels: ['P', 'Q', 'L'] }), it = r.items.find((x) => x.pair.join() === '0,1');
+  ok(it && !it.inRange && it.lao === 80 && r.best !== it, 'listed but flagged out of range'); ok(!r.items.some((x) => x.inRange && x.pair.join() === '0,1'));
+  if (!r.best) ok(r.status === 'out-of-range' && /outside the C-arm range/.test(r.message), 'status ' + r.status + ' / ' + r.message);
+});
+test('overlap projection: degenerate cases give a clear status/message (collinear markers, coincident markers, beam parallel to the axis, missing markers)', () => {
+  const C = [0, 0, 0], a = [0, 0, 1];
+  const col = M.overlapProjections(C, a, [[-10, 0, 0], [0, 0, 0], [10, 0, 0]]);
+  ok(col.status === 'degenerate' && col.items.length === 0 && /collinear/.test(col.message), 'collinear: ' + col.status + ' ' + col.message);
+  const coin = M.overlapProjections(C, a, [[5, 5, 0], [5.1, 5, 0], [-6, 2, 0]]);
+  ok(coin.rejected.some((x) => x.reason === 'coincident'), 'coincident pair is reported');
+  const par = M.overlapProjections(C, a, [[0, 0, 0], [0.5, 0, 12], [8, 0, 0]], { labels: ['a', 'b', 'c'] });
+  ok(par.rejected.some((x) => x.reason === 'axis-parallel' && /axis/.test(x.detail)), 'pair along the axis: beam parallel to the centreline axis');
+  const none = M.overlapProjections(C, a, [[1, 2, 3], null, [4, 5, 6]]); ok(none.status === 'no-markers' && /three A markers/.test(none.message) && none.items.length === 0);
+  const nul = M.overlapProjections(null, null, null); ok(nul.status === 'no-markers');
+});
+test('overlap projection on the app-style transferred A markers (RMF transfer at the default descending level): every offered item has residual < 0.4 mm, pair on the image right (independent 2D check) and a consistent exact beam; at least one in-range suggestion', () => {
+  const cl = M.buildCentreline(M.orientCentreline(APEX_FIRST, ROOT_PTS).ctrl, { smoothMm: 4 }), sD = M.defaultDescLevel(cl), tr = M.transferMarkers(cl, ROOT_H, { sD, refMode: 'own', radiusMode: 'keep' });
+  const A = ['NL', 'NR', 'LR'].map((k) => tr[k].A), fr = M.frameAt(cl, sD), r = M.overlapProjections(fr.C, fr.T, A, { labels: ['A_NL', 'A_NR', 'A_LR'] });
+  ok(r.status === 'ok' && r.best && r.items.length >= 1, 'status ' + r.status);
+  for (const it of r.items) {
+    ok(it.residual < 0.4, 'residual ' + it.residual); const pa = A[it.pair[0]], pb = A[it.pair[1]], pl = A[it.lone];
+    const sA = lateral2D(fr.C, fr.T, pa, it.lao, it.cran), sB = lateral2D(fr.C, fr.T, pb, it.lao, it.cran), sL = lateral2D(fr.C, fr.T, pl, it.lao, it.cran);
+    ok((sA + sB) / 2 > sL, 'pair right of lone (independent 2D): ' + it.text); near(it.separation, Math.hypot((sA + sB) / 2 - sL, 0), 0.3, 'separation'); 
+  }
+  console.log('       phantom-style A markers: ' + r.items.map((x) => `${x.text} -> ${x.label} (res ${x.residual.toFixed(2)} mm, sep ${x.separation.toFixed(1)} mm${x.inRange ? '' : ', OUT OF RANGE'})`).join(' | ') + ' | not offered: ' + r.rejected.map((x) => x.reason).join(','));
+});
+
 summary();

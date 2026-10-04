@@ -406,11 +406,53 @@
     const Hs = HK.map((k) => S.m.H[k] && S.tr ? { label: 'H_' + k, color: GROUPS.H.color[k], phi: S.tr[k].phi, rho: S.tr[k].rho } : null).filter(Boolean);
     const As = S.cl ? HK.map((k) => S.m.A[k] ? Object.assign({ label: 'A_' + k, color: GROUPS.A.color[k] }, M.angularPosition(S.cl, S.sD, S.m.A[k].pos)) : null).filter(Boolean) : [];
     V.drawPolar($('cvPolar1'), { title: 'Angular positions about the centreline', H: Hs, A: As, beam: beamInfo() });
-    renderCPRCanvas(); renderTransferTable(As);
+    renderCPRCanvas(); renderCPRReadout(); renderTransferTable(As);
   }
   function beamInfo() {
     if (!S.sel || !S.axis || !S.cl) return null; const n3 = M.lateralDir(S.axis.a, S.sel.lao, S.sel.cran); if (!n3) return null;
     const f = M.frameAt(S.cl, S.sD); return { n2: [M.dot(n3, f.N1), M.dot(n3, f.N2)], label: M.labelAngles(S.sel.lao, S.sel.cran) };
+  }
+  /* C-arm angulation belonging to the stretched-view cut plane (see M.cutPlaneBeams): for the current cut-plane angle and each level
+   * (descending: A markers; annulus: H markers) the edge-on and face-on beams, rounded to the 1° grid used by the C-arm tab, with the 2:1 status of the markers in that view. */
+  function cprBeams() {
+    if (!S.cl) return null;
+    const alpha = S.p.cprAngle, levels = [['desc', 'Descending level', S.sD, () => HK.map((k) => S.m.A[k] && S.m.A[k].pos)], ['ann', 'Annulus level', S.sH, () => HK.map((k) => S.m.H[k])]], out = { alpha, levels: {} };
+    for (const [key, name, sl, getPts] of levels) {
+      if (sl == null) continue;
+      const fr = M.frameAt(S.cl, sl), b = M.cutPlaneBeams(fr, alpha), pts = getPts(), have = pts.every(Boolean), L = { key, name, s: sl, C: fr.C, a: fr.T, pts: have ? pts : null };
+      for (const kind of ['edge', 'face']) {
+        const lao = Math.round(b[kind].lao) + 0, cran = Math.round(b[kind].cran) + 0, inRange = lao >= M.LAO_MIN && lao <= M.LAO_MAX && cran >= M.CRAN_MIN && cran <= M.CRAN_MAX;
+        let st = null; if (have) { const r = M.evalViewFast(fr.C, fr.T, pts, lao, cran, S.p.minMargin); if (!r.degenerate) st = { is21: r.is21, valid: r.valid, margin: r.margin, left: r.s.filter((v) => v < 0).length, right: r.s.filter((v) => v >= 0).length, pairSide: r.pairSide }; }
+        L[kind] = { exactLao: b[kind].lao, exactCran: b[kind].cran, lao, cran, label: M.labelAngles(lao, cran), inRange, status: st };
+      }
+      out.levels[key] = L;
+    }
+    return out;
+  }
+  function beamStatusText(st) {
+    if (!st) return 'no marker data';
+    return `${st.left} left / ${st.right} right · ` + (st.is21 ? `2:1 ✓ (pair on image ${st.pairSide > 0 ? 'right' : 'left'}, margin ${f1(st.margin)} mm${st.valid ? '' : ' < min ' + S.p.minMargin}` + ')' : 'not 2:1');
+  }
+  function renderCPRReadout() {
+    const el = $('cprReadout'), info = cprBeams(), bE = $('btnCprEdge'), bF = $('btnCprFace');
+    if (!info) { el.textContent = 'C-arm angulation of the cut plane: needs a centreline'; bE.disabled = bF.disabled = true; $('cprUseMsg').textContent = ''; return; }
+    let h = `<b>Cut plane ${info.alpha}° → C-arm angulation</b> (beam ⟂ centreline at each level)`;
+    for (const key of ['desc', 'ann']) {
+      const L = info.levels[key]; if (!L) continue;
+      h += `<div class="cprLv">${L.name} (s = ${f1(L.s)} mm, ${key === 'desc' ? 'A' : 'H'} markers)</div>`;
+      for (const [kind, lab] of [['edge', 'Edge-on (beam in plane)'], ['face', 'Face-on (beam ⟂ plane)']]) {
+        const b = L[kind]; h += `<div>${lab}: <b>${b.label}</b>${b.inRange ? '' : ' <span class="warn">(outside ±60° / ±40° C-arm range)</span>'}<br><span class="cprSt">${beamStatusText(b.status)}</span></div>`;
+      }
+    }
+    el.innerHTML = h;
+    const D = info.levels.desc;
+    [[bE, 'edge'], [bF, 'face']].forEach(([b, kind]) => { b.disabled = !D || !D[kind].inRange; b.title = !D ? 'needs a descending level' : D[kind].inRange ? `Select ${D[kind].label} (${kind}-on, descending level) in the C-arm tab` : 'outside the C-arm tab range (LAO/RAO ±60°, CRAN/CAUD ±40°)'; });
+    const cur = D && S.sel ? ['edge', 'face'].filter((k) => D[k].lao === S.sel.lao && D[k].cran === S.sel.cran) : [];
+    $('cprUseMsg').textContent = cur.length ? `✓ ${cur.join(' / ')}-on angle of the descending level is the projection currently selected in the C-arm tab` : '';
+  }
+  function useCprAngle(kind) {
+    const info = cprBeams(), D = info && info.levels.desc; if (!D || !D[kind].inRange) return null;
+    selectProjection(D[kind].lao, D[kind].cran, true); return { lao: D[kind].lao, cran: D[kind].cran };
   }
   function renderCPRCanvas() {
     const cv = $('cvCPR'), ctx = cv.getContext('2d');
@@ -530,7 +572,8 @@
 <h3>Conventions</h3><ul>
 <li>Patient coordinates = DICOM LPS: x → patient left, y → posterior, z → superior (mm).</li>
 <li>C-arm: LAO positive, RAO negative; CRAN positive, CAUD negative. Beam direction (source→detector) d = (sin LAO·cos CRAN, −cos LAO·cos CRAN, sin CRAN). AP = 0°/0° has the source posterior and detector anterior. Image is displayed as seen from the detector: at AP patient-left is on image right, head is up.</li>
-<li>Angles about the centreline are measured clockwise as seen looking along the centreline direction (apex → descending aorta), from the RMF reference axis N1.</li></ul>
+<li>Angles about the centreline are measured clockwise as seen looking along the centreline direction (apex → descending aorta), from the RMF reference axis N1.</li>
+<li><b>Stretched view: C-arm angulation of the cut plane.</b> At a centreline level with frame (T, N1, N2) the cut plane at angle α is span{T, e}, e = cos α·N1 + sin α·N2 (the vertical axis of the stretched view); its normal is n = T × e. <b>Edge-on</b>: beam along e (in the plane and perpendicular to the centreline) – the plane projects to a line along the projected axis (any beam within the plane keeps it edge-on and gives the same marker left/right split, n·(P−C)). <b>Face-on</b>: beam along n – the plane is seen full-face and the marker lateral offsets are e·(P−C), i.e. what the stretched view displays. The beam is converted to LAO/RAO and CRAN/CAUD with the C-arm convention above (LAO, CRAN positive), choosing the representation with the source posterior (|LAO| ≤ 90°), rounded to the 1° grid of the C-arm tab; angles outside ±60° LAO/RAO or ±40° CRAN/CAUD are flagged and cannot be sent to the C-arm tab. The “left / right” counts and the 2:1 status are those of the same projection maths as the C-arm tab (A markers at the descending level, H markers at the annulus level). Face-on at α equals edge-on at α + 90°.</li></ul>
 <h3>Marker colours</h3><ul>
 <li><b style="color:#ffd600">▲ NCC = yellow</b>, <b style="color:#d50000">▲ LCC = red</b>, <b style="color:#00c853">▲ RCC = green</b> (cusp nadirs: triangles with a white outline, in markers, labels, lists, cross-sections, diagrams and the summary).</li>
 <li>H commissure markers are <b>circles</b>: H_NL <span style="color:#ff5252">red</span>, H_NR <span style="color:#69f0ae">green</span>, H_LR <span style="color:#448aff">blue</span> (unchanged; lighter tones than the nadir red/green, different shape, and always labelled). A markers are diamonds.</li>
@@ -548,6 +591,7 @@
 <h3>Approximations / limitations</h3><ul>
 <li>Marker placement is manual, except the optional <b>experimental</b> “Auto-detect nadirs” (see below). There is no automatic centreline or commissure detection.</li>
 <li>The descending-aorta level is user-chosen; the default is an arbitrary heuristic (80 mm of centreline beyond the highest point of the centreline, i.e. past the top of the arch toward the descending aorta).</li>
+<li>The C-arm angulation shown on the stretched view (Transfer tab) is the geometry of the cut plane at the descending and annulus levels – see “Stretched view: C-arm angulation of the cut plane” above; it inherits all the approximations of the RMF model and of the idealised C-arm.</li>
 <li>The rotation-minimising (parallel-transport) frame is a mathematical model of "same rotational angle in the stretched view"; 3mensio's own straightened frame may differ, particularly around the arch. Always compare with 3mensio.</li>
 <li>C-arm geometry is idealised (orthographic projection, isocentric, no table rotation/tilt, no magnification/parallax, no gantry/cradle offsets, patient lying as in the CT). Real fluoroscopy angles may differ; sign conventions differ between systems and must be verified.</li>
 <li>DICOM: uncompressed (implicit/explicit VR little endian, explicit big endian, deflated), JPEG Lossless (Process 14 / SV1, hand-decoded), JPEG Baseline/Extended (8/12-bit, grey-scale only) and RLE Lossless. JPEG 2000, JPEG-LS, progressive JPEG, colour images and multi-frame (enhanced) CT are not supported. Series are chosen from a list; large folders (thousands of files, several series) are scanned header-only and only the selected series is decoded.</li>
@@ -783,6 +827,7 @@ ${r.warnings.length ? '<ul class="warn small">' + r.warnings.map((w) => '<li>' +
     $('btnDescDefault').onclick = () => { S.p.descS = null; onChanged(); };
     $('refMode').onchange = (e) => { S.p.refMode = e.target.value; HK.forEach((k) => { if (S.m.A[k]) S.m.A[k].manual = false; }); onChanged(); };
     $('radMode').onchange = (e) => { S.p.radMode = e.target.value; onChanged(); }; $('fixedR').oninput = (e) => { S.p.fixedR = +e.target.value || 12; onChanged(); };
+    $('btnCprEdge').onclick = () => useCprAngle('edge'); $('btnCprFace').onclick = () => useCprAngle('face');
     $('cprAngle').oninput = (e) => { S.p.cprAngle = +e.target.value; cprCache = null; renderAll(); };
     // carm controls
     $('minMargin').onchange = (e) => { S.p.minMargin = Math.max(0, +e.target.value || 0); rescan(); renderAll(); };
@@ -798,6 +843,6 @@ ${r.warnings.length ? '<ul class="warn small">' + r.warnings.map((w) => '<li>' +
     ['sumId', 'sumAge', 'sumNote'].forEach((id) => $(id).addEventListener('input', () => { if (S.tab === 'summary') buildSummary(); }));
     syncWL(); syncControls(); renderToolList(); renderNow();
   }
-  window.NavApp = { flowAxisAt, loadSession, saveSession, GROUPS, CL_COLOR, Q, mprFrame, applyOrient, resetOrient, alignToCentreline, crossGeom, sliceGeom, S, M, update, onChanged, loadPhantom, demoMarkers, setTab, selectProjection, handleFiles, allMarkers, placeMarker, views, buildSummary, rescan, rerank, selEval, fitViews, renderNow, setVolume };
+  window.NavApp = { cprBeams, useCprAngle, flowAxisAt, loadSession, saveSession, GROUPS, CL_COLOR, Q, mprFrame, applyOrient, resetOrient, alignToCentreline, crossGeom, sliceGeom, S, M, update, onChanged, loadPhantom, demoMarkers, setTab, selectProjection, handleFiles, allMarkers, placeMarker, views, buildSummary, rescan, rerank, selEval, fitViews, renderNow, setVolume };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();

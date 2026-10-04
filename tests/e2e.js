@@ -130,6 +130,64 @@ async function clickAt(pg, key, P, opts) { await setCross(pg, P); const [x, y] =
     await pg.evaluate(() => document.getElementById('btnDescDefault').click());
   });
 
+  // ---------- 3b. stretched view: C-arm angulation of the cut plane (overlay + "use in C-arm tab") ----------
+  const cprTxt = () => pg.evaluate(() => document.getElementById('cprReadout').textContent);
+  const parseAng = (t, lab, lvl) => { const seg = t.slice(t.indexOf(lvl)); const m = new RegExp(lab + '[^:]*:\\s*(LAO|RAO|LAO/RAO) (\\d+)° / (CRAN|CAUD|CRAN/CAUD) (\\d+)°').exec(seg); if (!m) return null; return [(m[1] === 'RAO' ? -1 : 1) * +m[2], (m[3] === 'CAUD' ? -1 : 1) * +m[4]]; };
+  await test('stretched view overlay: shows edge-on + face-on C-arm angulation (LAO/CRAN) for descending and annulus level, with left/right marker split / 2:1 status', async () => {
+    await pg.evaluate(() => { const el = document.getElementById('cprAngle'); el.value = '0'; el.dispatchEvent(new Event('input', { bubbles: true })); });
+    const t = await cprTxt(); ok(/Cut plane 0°/.test(t) && /Descending level/.test(t) && /Annulus level/.test(t) && /Edge-on \(beam in plane\)/.test(t) && /Face-on \(beam ⟂ plane\)/.test(t), t);
+    ok(/\d+ left \/ \d+ right/.test(t) && /(2:1 ✓|not 2:1)/.test(t), t); ok(await pg.isVisible('#cprReadout'), 'overlay visible');
+    await pg.screenshot({ path: path.join(shots, '15_stretched_carm_angulation.png'), fullPage: true });
+  });
+  await test('moving the cut-plane slider with REAL keyboard/mouse events changes the overlay live; angles equal the independent maths (edge-on = beam along e, face-on = beam along n) at both levels', async () => {
+    const sl = pg.locator('#cprAngle'); await sl.focus(); const seen = new Set();
+    seen.add(await cprTxt());
+    for (let i = 0; i < 4; i++) { for (let k = 0; k < 25; k++) await pg.keyboard.press('ArrowRight'); seen.add(await cprTxt()); }
+    ok(seen.size === 5, 'overlay text should change at each of the 4 slider moves: ' + seen.size);
+    await pg.waitForTimeout(250); const a100 = await pg.evaluate(() => NavApp.S.p.cprAngle); ok(a100 >= 96 && a100 <= 100 && (await pg.textContent('#cprAngleO')) === a100 + '°' && new RegExp('Cut plane ' + a100 + '°').test(await cprTxt()), 'label ' + await pg.textContent('#cprAngleO') + ' / ' + a100);
+    await sl.evaluate((el) => el.scrollIntoView({ block: 'center' })); const box = await sl.boundingBox(); await pg.mouse.click(box.x + box.width * 0.5, box.y + box.height / 2); await pg.waitForTimeout(100);       // click the middle of the track -> ~180°
+    const a = await pg.evaluate(() => NavApp.S.p.cprAngle); ok(a > 160 && a < 200, 'slider click -> ' + a);
+    // independent check in the page: angles from first principles (no use of cutPlaneBeams)
+    const r = await pg.evaluate(() => { const S = NavApp.S, M = NavApp.M, D = Math.PI / 180, out = [];
+      for (const [key, s] of [['desc', S.sD], ['ann', S.sH]]) { const f = M.frameAt(S.cl, s), al = S.p.cprAngle * D;
+        const e = [0, 1, 2].map((i) => Math.cos(al) * f.N1[i] + Math.sin(al) * f.N2[i]), n = M.cross(f.T, e);
+        const ang = (v) => { if (v[1] > 0) v = v.map((x) => -x); return [Math.round(Math.atan2(v[0], -v[1]) / D), Math.round(Math.asin(v[2]) / D)]; };
+        const B = NavApp.cprBeams().levels[key]; out.push({ key, edge: ang(e), face: ang(n), uiEdge: [B.edge.lao, B.edge.cran], uiFace: [B.face.lao, B.face.cran] }); } return out; });
+    const t = await cprTxt();
+    for (const q of r) { ok(JSON.stringify(q.edge) === JSON.stringify(q.uiEdge) && JSON.stringify(q.face) === JSON.stringify(q.uiFace), 'angles ' + JSON.stringify(q));
+      const lvl = q.key === 'desc' ? 'Descending level' : 'Annulus level', e = parseAng(t, 'Edge-on', lvl), f = parseAng(t, 'Face-on', lvl);
+      ok(JSON.stringify(e) === JSON.stringify(q.edge) && JSON.stringify(f) === JSON.stringify(q.face), lvl + ' text ' + JSON.stringify([e, f]) + ' vs ' + JSON.stringify([q.edge, q.face])); }
+    console.log('       (cut plane ' + a + '°: descending edge-on ' + r[0].edge + ' face-on ' + r[0].face + '; annulus edge-on ' + r[1].edge + ' face-on ' + r[1].face + ')');
+  });
+  await test('face-on(alpha) == edge-on(alpha+90) in the UI; overlay changes with the angle', async () => {
+    const g = async (al) => { await pg.evaluate((al) => { const el = document.getElementById('cprAngle'); el.value = String(al); el.dispatchEvent(new Event('input', { bubbles: true })); }, al); await pg.waitForTimeout(150); return pg.evaluate(() => { const D = NavApp.cprBeams().levels.desc; return { e: [D.edge.lao, D.edge.cran], f: [D.face.lao, D.face.cran], txt: document.getElementById('cprReadout').textContent }; }); };
+    const a = await g(40), b = await g(130), c = await g(300);
+    ok(JSON.stringify(a.f) === JSON.stringify(b.e), 'face(40) ' + a.f + ' vs edge(130) ' + b.e); ok(a.txt !== b.txt && b.txt !== c.txt, 'text should change');
+  });
+  await test('"Use edge-on / face-on angle in C-arm tab": selects that projection (1° grid) in the C-arm tab; the C-arm tab evaluation equals the overlay status; out-of-range angles disable the button', async () => {
+    const out = [];
+    for (const kind of ['edge', 'face']) {
+      // find a cut-plane angle for which the beam is inside the C-arm range
+      const al = await pg.evaluate((kind) => { for (let a = 0; a < 360; a += 5) { const el = document.getElementById('cprAngle'); el.value = String(a); el.dispatchEvent(new Event('input', { bubbles: true })); if (NavApp.cprBeams().levels.desc[kind].inRange) return a; } return -1; }, kind);
+      ok(al >= 0, 'no in-range angle for ' + kind); await pg.waitForTimeout(200);
+      const exp = await pg.evaluate((kind) => { const D = NavApp.cprBeams().levels.desc[kind]; return { lao: D.lao, cran: D.cran, st: D.status }; }, kind);
+      await pg.click(kind === 'edge' ? '#btnCprEdge' : '#btnCprFace'); await pg.waitForTimeout(150);
+      const sel = await pg.evaluate(() => ({ s: NavApp.S.sel, man: NavApp.S.selManual, ev: (() => { const e = NavApp.selEval(); return e && { is21: e.is21, margin: e.margin, left: e.s.filter((v) => v < 0).length }; })() }));
+      ok(sel.s.lao === exp.lao && sel.s.cran === exp.cran && sel.man === true, 'selected ' + JSON.stringify(sel.s) + ' expected ' + exp.lao + '/' + exp.cran);
+      ok(sel.ev && sel.ev.is21 === exp.st.is21 && Math.abs(sel.ev.margin - (exp.st.is21 ? exp.st.margin : 0)) < 1e-9 && sel.ev.left === exp.st.left, 'C-arm evaluation differs from overlay status ' + JSON.stringify([sel.ev, exp.st]));
+      ok(/currently selected in the C-arm tab/.test(await pg.textContent('#cprUseMsg')), 'confirmation message');
+      await pg.click('#tabs button[data-tab=carm]'); await pg.waitForTimeout(400);
+      ok((await pg.inputValue('#selLao')) === String(exp.lao) && (await pg.inputValue('#selCran')) === String(exp.cran), 'C-arm tab selectors show ' + (await pg.inputValue('#selLao')) + '/' + (await pg.inputValue('#selCran')));
+      await pg.click('#tabs button[data-tab=transfer]'); await pg.waitForTimeout(300); out.push(kind + ' ' + exp.lao + '/' + exp.cran + ' at ' + al + '°');
+    }
+    const aOut = await pg.evaluate(() => { for (let a = 0; a < 360; a++) { const el = document.getElementById('cprAngle'); el.value = String(a); el.dispatchEvent(new Event('input', { bubbles: true })); if (!NavApp.cprBeams().levels.desc.edge.inRange) return a; } return null; });
+    await pg.waitForTimeout(200); const dis = await pg.evaluate((a) => ({ a, disabled: document.getElementById('btnCprEdge').disabled, txt: document.getElementById('cprReadout').textContent, sel: JSON.stringify(NavApp.S.sel) }), aOut);
+    ok(dis && dis.disabled && /outside ±60°/.test(dis.txt), 'out-of-range case: ' + JSON.stringify(dis)); const sel0 = dis.sel;
+    await pg.evaluate(() => document.getElementById('btnCprEdge').click()); ok((await pg.evaluate(() => JSON.stringify(NavApp.S.sel))) === sel0, 'disabled button must not change the selection');
+    console.log('       (' + out.join('; ') + ')');
+    await pg.evaluate(() => { const el = document.getElementById('cprAngle'); el.value = '0'; el.dispatchEvent(new Event('input', { bubbles: true })); NavApp.S.selManual = false; NavApp.rerank(); });   // restore automatic selection for the following tests
+  });
+
   // ---------- 4. C-arm ----------
   await pg.click('#tabs button[data-tab=carm]'); await pg.waitForTimeout(600);
   await test('scan equals brute-force explicit projection classification over the whole 121x81 grid', async () => {

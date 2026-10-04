@@ -247,6 +247,25 @@
     const b = imageBasis(lao, cran);
     return [dot(P, b.right), dot(P, b.up)];
   }
+  /* Inverse of beamDir(): beam direction d (source -> detector, LPS) -> {lao, cran} in degrees (LAO, CRAN positive; unrounded).
+   * d and -d are the same line of sight (mirror-image projection); the one with the source posterior (d_y <= 0, |LAO| <= 90) is returned,
+   * which is the physically reachable representation. d is returned (unit, flipped if needed) as .d */
+  function beamAngles(d) {
+    let v = norm(d);
+    if (v[1] > 1e-12 || (Math.abs(v[1]) <= 1e-12 && v[0] < 0)) v = mul(v, -1);
+    return { lao: Math.atan2(v[0], -v[1]) * R2D, cran: Math.asin(Math.max(-1, Math.min(1, v[2]))) * R2D, d: v };
+  }
+  /* Beams belonging to the longitudinal cut plane of the stretched vessel view at one centreline level.
+   * fr = {T, N1, N2} (frameAt), alphaDeg = cut-plane angle about the centreline measured from N1 toward N2 (same as renderCPR).
+   * The cut plane at this level is span{T, e}, e = cos(a) N1 + sin(a) N2 (the stretched view's vertical axis); its normal is n = T x e.
+   *  - edge-on: beam d = e (in the plane, perpendicular to the centreline axis) -> the plane projects to a line along the projected axis;
+   *    ANY beam in the plane (d = cos(t) T + sin(t) e) keeps it edge-on and gives the same marker lateral offsets (n . (P - C)); e is the one without foreshortening of the axis.
+   *  - face-on: beam d = n (perpendicular to the plane) -> the plane is seen face-on, marker lateral offsets = e . (P - C), i.e. exactly what the stretched view shows.
+   * Returns { e, n, edge: beamAngles(e), face: beamAngles(n) }. */
+  function cutPlaneBeams(fr, alphaDeg) {
+    const a = alphaDeg * D2R, e = add(mul(fr.N1, Math.cos(a)), mul(fr.N2, Math.sin(a))), n = cross(fr.T, e);
+    return { e, n, edge: beamAngles(e), face: beamAngles(n) };
+  }
   function labelAngles(lao, cran) {
     const l = (lao > 0 ? 'LAO ' : lao < 0 ? 'RAO ' : 'LAO/RAO ') + Math.abs(lao) + '°';
     const c = (cran > 0 ? 'CRAN ' : cran < 0 ? 'CAUD ' : 'CRAN/CAUD ') + Math.abs(cran) + '°';
@@ -364,6 +383,6 @@
 
   return { D2R, R2D, add, sub, mul, dot, cross, len, norm, lerp, dist, wrap180,
     catmullRom, resample, gaussSmooth, arcLengths, rmf, buildCentreline, centrelineOrder, orientCentreline, defaultDescLevel, frameAt, nearestS, angularPosition, positionFromAngle, transferMarkers, angularGaps,
-    beamDir, imageBasis, lateralDir, project, labelAngles, evalViewProjected, evalViewFast, classify, scanProjections, rankProjections, gridAngles,
+    beamDir, beamAngles, cutPlaneBeams, imageBasis, lateralDir, project, labelAngles, evalViewProjected, evalViewFast, classify, scanProjections, rankProjections, gridAngles,
     LAO_MIN, LAO_MAX, CRAN_MIN, CRAN_MAX };
 });

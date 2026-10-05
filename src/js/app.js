@@ -399,7 +399,9 @@
     ['annLevel', 'descLevel'].forEach((id) => { $(id).max = Math.ceil(L); });
     $('annLevel').value = S.sH == null ? 0 : S.sH; $('descLevel').value = S.sD == null ? 0 : S.sD;
     $('annLevelO').textContent = S.sH == null ? '—' : f1(S.sH) + ' mm'; $('descLevelO').textContent = S.sD == null ? '—' : f1(S.sD) + ' mm';
-    $('annLevel').disabled = S.p.annAuto && HK.some((k) => S.m.H[k]); $('smoothO').textContent = S.p.smoothMm + ' mm'; $('cprAngleO').textContent = S.p.cprAngle + '°';
+    $('annLevel').disabled = S.p.annAuto && HK.some((k) => S.m.H[k]); $('smoothO').textContent = S.p.smoothMm + ' mm'; $('cprAngleO').textContent = S.p.cprAngle + '°'; $('cprAngleSideO').textContent = S.p.cprAngle + '°';
+    if (+$('cprAngle').value !== S.p.cprAngle) $('cprAngle').value = S.p.cprAngle;
+    if (+$('cprAngleSide').value !== S.p.cprAngle) $('cprAngleSide').value = S.p.cprAngle;
     $('fixedRow').style.display = S.p.radMode === 'fixed' ? 'flex' : 'none';
     $('clStats').textContent = S.cl ? `Smoothed centreline: ${f1(S.cl.length)} mm, ${S.cl.pts.length} samples @ 0.5 mm.\nRotation-minimising frame (double reflection).` : 'Need ≥ 2 centreline points (tab 2).';
     views.xann.draw(); views.xdesc.draw();
@@ -610,7 +612,7 @@
 <li>Patient coordinates = DICOM LPS: x → patient left, y → posterior, z → superior (mm).</li>
 <li>C-arm: LAO positive, RAO negative; CRAN positive, CAUD negative. Beam direction (source→detector) d = (sin LAO·cos CRAN, −cos LAO·cos CRAN, sin CRAN). AP = 0°/0° has the source posterior and detector anterior. Image is displayed as seen from the detector: at AP patient-left is on image right, head is up.</li>
 <li>Angles about the centreline are measured clockwise as seen looking along the centreline direction (apex → descending aorta), from the RMF reference axis N1.</li>
-<li><b>Stretched view: C-arm angulation of the cut plane.</b> At a centreline level with frame (T, N1, N2) the cut plane at angle α is span{T, e}, e = cos α·N1 + sin α·N2 (the vertical axis of the stretched view); its normal is n = T × e. <b>Edge-on</b>: beam along e (in the plane and perpendicular to the centreline) – the plane projects to a line along the projected axis (any beam within the plane keeps it edge-on and gives the same marker left/right split, n·(P−C)). <b>Face-on</b>: beam along n – the plane is seen full-face and the marker lateral offsets are e·(P−C), i.e. what the stretched view displays. The beam is converted to LAO/RAO and CRAN/CAUD with the C-arm convention above (LAO, CRAN positive), choosing the representation with the source posterior (|LAO| ≤ 90°), rounded to the 1° grid of the C-arm tab; angles outside ±60° LAO/RAO or ±40° CRAN/CAUD are flagged and cannot be sent to the C-arm tab. The “left / right” counts and the 2:1 status are those of the same projection maths as the C-arm tab (A markers at the descending level, H markers at the annulus level). Face-on at α equals edge-on at α + 90°.</li></ul>
+<li><b>Stretched view: C-arm angulation of the cut plane.</b> The <b>Cut-plane angle</b> slider sits under the stretched vessel view (full width; a compact twin in the left sidebar stays in sync – one logical control). At a centreline level with frame (T, N1, N2) the cut plane at angle α is span{T, e}, e = cos α·N1 + sin α·N2 (the vertical axis of the stretched view); its normal is n = T × e. <b>Edge-on</b>: beam along e (in the plane and perpendicular to the centreline) – the plane projects to a line along the projected axis (any beam within the plane keeps it edge-on and gives the same marker left/right split, n·(P−C)). <b>Face-on</b>: beam along n – the plane is seen full-face and the marker lateral offsets are e·(P−C), i.e. what the stretched view displays. The beam is converted to LAO/RAO and CRAN/CAUD with the C-arm convention above (LAO, CRAN positive), choosing the representation with the source posterior (|LAO| ≤ 90°), rounded to the 1° grid of the C-arm tab; angles outside ±60° LAO/RAO or ±40° CRAN/CAUD are flagged and cannot be sent to the C-arm tab. The “left / right” counts and the 2:1 status are those of the same projection maths as the C-arm tab (A markers at the descending level, H markers at the annulus level). Face-on at α equals edge-on at α + 90°.</li></ul>
 <h3>Marker colours</h3><ul>
 <li><b style="color:#ffd600">▲ NCC = yellow</b>, <b style="color:#d50000">▲ LCC = red</b>, <b style="color:#00c853">▲ RCC = green</b> (cusp nadirs: triangles with a white outline, in markers, labels, lists, cross-sections, diagrams and the summary).</li>
 <li>H commissure markers are <b>circles</b>: H_NL <span style="color:#ff5252">red</span>, H_NR <span style="color:#69f0ae">green</span>, H_LR <span style="color:#448aff">blue</span> (unchanged; lighter tones than the nadir red/green, different shape, and always labelled). A markers are diamonds.</li>
@@ -804,7 +806,7 @@ ${r.warnings.length ? '<ul class="warn small">' + r.warnings.map((w) => '<li>' +
     } catch (e) { status('Could not load markers: ' + e.message, 'err'); }
   }
   function syncControls() {
-    $('smooth').value = S.p.smoothMm; $('chkAnnAuto').checked = S.p.annAuto; $('refMode').value = S.p.refMode; $('radMode').value = S.p.radMode; $('fixedR').value = S.p.fixedR; $('cprAngle').value = S.p.cprAngle;
+    $('smooth').value = S.p.smoothMm; $('chkAnnAuto').checked = S.p.annAuto; $('refMode').value = S.p.refMode; $('radMode').value = S.p.radMode; $('fixedR').value = S.p.fixedR; $('cprAngle').value = S.p.cprAngle; $('cprAngleSide').value = S.p.cprAngle;
     $('minMargin').value = S.p.minMargin; $('pracFrac').value = Math.round(S.p.pracFrac * 100); $('sideSel').value = S.p.side; $('chkStable').checked = S.p.stableOnly;
   }
 
@@ -866,7 +868,8 @@ ${r.warnings.length ? '<ul class="warn small">' + r.warnings.map((w) => '<li>' +
     $('radMode').onchange = (e) => { S.p.radMode = e.target.value; onChanged(); }; $('fixedR').oninput = (e) => { S.p.fixedR = +e.target.value || 12; onChanged(); };
     $('ovBody').addEventListener('click', (e) => { const b = e.target.closest('button[data-ovuse]'); if (b && !b.disabled) useOverlap(+b.dataset.ovuse); });
     $('btnCprEdge').onclick = () => useCprAngle('edge'); $('btnCprFace').onclick = () => useCprAngle('face');
-    $('cprAngle').oninput = (e) => { S.p.cprAngle = +e.target.value; cprCache = null; renderAll(); };
+    const setCprAngle = (v) => { S.p.cprAngle = ((+v % 360) + 360) % 360; $('cprAngle').value = S.p.cprAngle; $('cprAngleSide').value = S.p.cprAngle; $('cprAngleSide').value = S.p.cprAngle; cprCache = null; renderAll(); };
+    $('cprAngle').oninput = (e) => setCprAngle(e.target.value); $('cprAngleSide').oninput = (e) => setCprAngle(e.target.value);
     // carm controls
     $('minMargin').onchange = (e) => { S.p.minMargin = Math.max(0, +e.target.value || 0); rescan(); renderAll(); };
     $('pracFrac').onchange = (e) => { S.p.pracFrac = Math.min(1, Math.max(0.1, (+e.target.value || 70) / 100)); rerank(); renderAll(); };

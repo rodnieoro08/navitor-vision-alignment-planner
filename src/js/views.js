@@ -15,7 +15,7 @@
     toWorld(px, py) { const f = this.frame(); const a = this.cu + (px - this.W / 2) * this.mm, b = this.cv + (py - this.H / 2) * this.mm; return [f.o[0] + f.u[0] * a + f.v[0] * b, f.o[1] + f.u[1] * a + f.v[1] * b, f.o[2] + f.u[2] * a + f.v[2] * b]; }
     toScreen(P) { const f = this.frame(), d = [P[0] - f.o[0], P[1] - f.o[1], P[2] - f.o[2]]; return [this.W / 2 + (dot(d, f.u) - this.cu) / this.mm, this.H / 2 + (dot(d, f.v) - this.cv) / this.mm]; }
     depth(P) { const f = this.frame(); return dot([P[0] - f.o[0], P[1] - f.o[1], P[2] - f.o[2]], f.n); }
-    fit(extentU, extentV, cu, cv) { this.mm = Math.max(extentU / this.W, extentV / this.H) * 1.04; this.cu = cu || 0; this.cv = cv || 0; this.dirty = true; }
+    fit(extentU, extentV, cu, cv) { this.mm = this.fitMm = Math.max(extentU / this.W, extentV / this.H) * 1.04; this.cu = cu || 0; this.cv = cv || 0; this.dirty = true; }
     zoomAt(px, py, factor) {
       const before = this.pxToPlane(px, py);
       this.mm = Math.min(Math.max(this.mm / factor, 0.05), 8);

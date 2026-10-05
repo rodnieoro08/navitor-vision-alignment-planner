@@ -122,14 +122,15 @@
     const v = new V.PlaneView($(canvasId), { volume: () => S.vol, wl: () => S.wl, frame: xsecFrame(which), overlay: (view, ctx) => overlay(view, ctx) });
     v.kind = 'xsec'; v.which = which; v.groups = which === 'ann' ? ['nadir', 'H'] : ['A']; v.mm = 0.23; views['x' + which] = v; attachView(v); return v;
   }
+  function fitView(n) {                                                                 // Fit one MPR view: extents of the (possibly oblique) plane over the volume's bounding box
+    if (!S.vol) return; const b = S.vol.bbox, f = mprFrame(n); let lu = [1e9, -1e9], lv = [1e9, -1e9];
+    for (let c = 0; c < 8; c++) { const P = [c & 1 ? b.hi[0] : b.lo[0], c & 2 ? b.hi[1] : b.lo[1], c & 4 ? b.hi[2] : b.lo[2]], a = M.dot(P, f.u), bb = M.dot(P, f.v); lu = [Math.min(lu[0], a), Math.max(lu[1], a)]; lv = [Math.min(lv[0], bb), Math.max(lv[1], bb)]; }
+    if (Q.isIdentity(S.orient)) { const cu = (lu[0] + lu[1]) / 2, cvv = (lv[0] + lv[1]) / 2; views[n].fit(lu[1] - lu[0], lv[1] - lv[0], cu, cvv); }
+    else { const e = Math.min(lu[1] - lu[0], lv[1] - lv[0]), cu = M.dot(S.cross, f.u), cvv = M.dot(S.cross, f.v); views[n].fit(Math.max(e, 1), Math.max(e, 1), cu, cvv); }
+  }
   function fitViews() {
-    if (!S.vol) return; const b = S.vol.bbox;
-    for (const n of Object.keys(MPR)) {                                                  // extents of the (possibly oblique) plane over the volume's bounding box
-      const f = mprFrame(n); let lu = [1e9, -1e9], lv = [1e9, -1e9];
-      for (let c = 0; c < 8; c++) { const P = [c & 1 ? b.hi[0] : b.lo[0], c & 2 ? b.hi[1] : b.lo[1], c & 4 ? b.hi[2] : b.lo[2]], a = M.dot(P, f.u), bb = M.dot(P, f.v); lu = [Math.min(lu[0], a), Math.max(lu[1], a)]; lv = [Math.min(lv[0], bb), Math.max(lv[1], bb)]; }
-      if (Q.isIdentity(S.orient)) { const cu = (lu[0] + lu[1]) / 2, cvv = (lv[0] + lv[1]) / 2; views[n].fit(lu[1] - lu[0], lv[1] - lv[0], cu, cvv); }
-      else { const e = Math.min(lu[1] - lu[0], lv[1] - lv[0]), cu = M.dot(S.cross, f.u), cvv = M.dot(S.cross, f.v); views[n].fit(Math.max(e, 1), Math.max(e, 1), cu, cvv); }
-    }
+    if (!S.vol) return;
+    for (const n of Object.keys(MPR)) fitView(n);
     views.xann.mm = 0.23; views.xdesc.mm = 0.23; views.xann.cu = views.xann.cv = views.xdesc.cu = views.xdesc.cv = 0; Object.values(views).forEach((v) => { v.dirty = true; });
   }
   function markerVis(view, m) {
@@ -341,9 +342,51 @@
       b.lab.textContent = Q.isIdentity(S.orient) ? `${g.k + 1}/${g.N}  ${g.n[2] ? 'z' : g.n[1] ? 'y' : 'x'} ${(g.n[g.n[2] ? 2 : g.n[1] ? 1 : 0] * g.s).toFixed(1)} mm` : `${g.k + 1}/${g.N}  oblique ${g.s.toFixed(1)} mm`;
     }
   }
+  /* ---------------- per-view zoom controls (mouse-only: − / slider / + / Fit in each MPR title bar; additive to Ctrl+wheel / pinch) ---------------- */
+  const ZOOM = { min: 0.5, max: 16, step: 1.25 };    // zoom relative to Fit (= 100 %); slider is logarithmic: value = 100·log2(zoom)
+  const zoomOf = (v) => (v.fitMm ? v.fitMm / v.mm : 1);
+  function zoomAnchor(v) {                             // zoom about the crosshair when it is inside the view (the point being worked on stays put), else about the view centre
+    const p = S.vol ? v.toScreen(S.cross) : null;
+    return p && p[0] >= 0 && p[0] <= v.W && p[1] >= 0 && p[1] <= v.H ? p : [v.W / 2, v.H / 2];
+  }
+  function setZoom(name, z) {                          // goes through PlaneView.zoomAt, i.e. the same mm/cu/cv state as wheel/pinch zoom -> markers, crosshair, clicks stay exact
+    const v = views[name]; if (!S.vol || !v || !v.fitMm) return;
+    z = Math.min(Math.max(z, ZOOM.min), ZOOM.max); if (Math.abs(z - 1) < 0.015) z = 1;
+    const a = zoomAnchor(v); v.zoomAt(a[0], a[1], v.mm * z / v.fitMm); S.active = name; renderAll();
+  }
+  const zoomStep = (name, dir) => setZoom(name, zoomOf(views[name]) * Math.pow(ZOOM.step, dir));
+  function zoomFit(name) { if (!S.vol) return; fitView(name); S.active = name; renderAll(); }
+  function addZoomBars() {
+    for (const name of Object.keys(MPR)) {
+      const v = views[name], wrap = v.canvas.closest('.vwrap'), title = wrap && wrap.querySelector('.vtitle'); if (!title) continue;
+      title.classList.add('vtbar'); title.innerHTML = `<span class="vtname">${esc(title.textContent)}</span>`;
+      const z = document.createElement('div'); z.className = 'zoombar'; z.dataset.view = name; z.setAttribute('role', 'group'); z.setAttribute('aria-label', MPR[name].title + ' zoom');
+      z.innerHTML = `<button type="button" class="zb" data-z="out" title="Zoom out (−)" aria-label="${MPR[name].title} zoom out">−</button>`
+        + `<input type="range" class="zslider" min="${Math.round(100 * Math.log2(ZOOM.min))}" max="${Math.round(100 * Math.log2(ZOOM.max))}" step="1" value="0" title="Zoom (drag)" aria-label="${MPR[name].title} zoom">`
+        + `<button type="button" class="zb" data-z="in" title="Zoom in (+)" aria-label="${MPR[name].title} zoom in">+</button>`
+        + `<span class="zlab mono" title="zoom relative to Fit">100%</span>`
+        + `<button type="button" class="zb zfit" data-z="fit" title="Fit this view (reset zoom + pan)" aria-label="${MPR[name].title} fit">Fit</button>`;
+      title.appendChild(z);
+      z.addEventListener('click', (e) => { const b = e.target.closest('[data-z]'); if (!b) return; const a = b.dataset.z; if (a === 'in') zoomStep(name, 1); else if (a === 'out') zoomStep(name, -1); else zoomFit(name); });
+      const inp = z.querySelector('input'); inp.addEventListener('input', () => setZoom(name, Math.pow(2, +inp.value / 100)));
+      v.zbar = { el: z, inp, lab: z.querySelector('.zlab'), btns: [...z.querySelectorAll('button')] };
+    }
+  }
+  function updateZoomBars() {
+    for (const name of Object.keys(MPR)) {
+      const b = views[name].zbar; if (!b) continue; const on = !!(S.vol && views[name].fitMm);
+      b.btns.forEach((x) => { x.disabled = !on; }); b.inp.disabled = !on;
+      if (!on) { b.lab.textContent = '–'; continue; }
+      const z = zoomOf(views[name]); b.lab.textContent = Math.round(z * 100) + '%';
+      b.inp.value = Math.round(100 * Math.log2(z));
+      b.btns[0].disabled = z <= ZOOM.min * 1.001; b.btns[1].disabled = z >= ZOOM.max * 0.999 || views[name].mm <= 0.0501;
+    }
+  }
   document.addEventListener('keydown', (e) => {
     if (!S.vol || S.tab !== 'mark' || e.ctrlKey || e.metaKey || e.altKey) return;
     const t = e.target, tag = t && t.tagName; if (tag === 'INPUT' && t.type !== 'range' && t.type !== 'checkbox' || tag === 'TEXTAREA' || tag === 'SELECT' || (t && t.isContentEditable)) return;
+    const zk = { '+': 1, '=': 1, '-': -1, '_': -1, '0': 0 }[e.key], zv = S.hover || S.active;
+    if (zk !== undefined && MPR[zv]) { e.preventDefault(); if (zk) zoomStep(zv, zk); else zoomFit(zv); return; }   // + / − / 0 on the hovered view (works even with focus on a zoom/slice slider; mouse users without pinch)
     if (tag === 'INPUT' && t.type === 'range' && !t.closest('.slicebar')) return;       // other sliders keep their own arrow-key behaviour
     const dir = e.key === 'ArrowUp' || e.key === 'PageUp' ? 1 : e.key === 'ArrowDown' || e.key === 'PageDown' ? -1 : 0; if (!dir) return;
     e.preventDefault(); stepSlice(S.hover || S.active || 'axial', dir * (e.shiftKey ? 5 : 1) * (S.invertScroll ? -1 : 1));
@@ -815,7 +858,7 @@ ${r.warnings.length ? '<ul class="warn small">' + r.warnings.map((w) => '<li>' +
   function renderAll() { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; renderNow(); }); }
   function renderNow() {
     const t = S.tab;
-    if (t === 'mark') { updateSliceBars(); renderToolList(); renderMarkSummary(); renderCursorInfo(); views.axial.draw(); views.coronal.draw(); views.sagittal.draw(); }
+    if (t === 'mark') { updateSliceBars(); updateZoomBars(); renderToolList(); renderMarkSummary(); renderCursorInfo(); views.axial.draw(); views.coronal.draw(); views.sagittal.draw(); }
     else if (t === 'transfer') renderTransfer();
     else if (t === 'carm') renderCarm();
   }
@@ -853,7 +896,7 @@ ${r.warnings.length ? '<ul class="warn small">' + r.warnings.map((w) => '<li>' +
     $('btnResetOrient').onclick = resetOrient; $('btnAlignCl').onclick = alignToCentreline;
     $('btnAutoNadir').onclick = autoDetect; $('btnRotNadir').onclick = rotateNadirLabels; $('btnUndoNadir').onclick = undoAutoNadirs;
     $('btnSeedCross').onclick = () => { if (!S.vol) return; S.seed = S.cross.map((v) => Math.round(v * 10) / 10); onChanged(); };
-    addSliceBars(); $('chkInvScroll').addEventListener('change', (e) => { S.invertScroll = e.target.checked; });
+    addSliceBars(); addZoomBars(); $('chkInvScroll').addEventListener('change', (e) => { S.invertScroll = e.target.checked; });
     $('btnGoRoot').onclick = () => { const h = HK.filter((k) => S.m.H[k]); if (h.length) { S.cross = M.mul(h.reduce((a, k) => M.add(a, S.m.H[k]), [0, 0, 0]), 1 / h.length); renderAll(); } };
     $('wlPresets').innerHTML = Object.keys(PRESETS).map((k) => `<button class="btn sm" data-p="${k}">${k}</button>`).join('');
     $('wlPresets').addEventListener('click', (e) => { const k = e.target.dataset.p; if (k) { S.wl = { c: PRESETS[k][0], w: PRESETS[k][1] }; syncWL(); invalidateImages(); renderAll(); } });
@@ -884,6 +927,6 @@ ${r.warnings.length ? '<ul class="warn small">' + r.warnings.map((w) => '<li>' +
     ['sumId', 'sumAge', 'sumNote'].forEach((id) => $(id).addEventListener('input', () => { if (S.tab === 'summary') buildSummary(); }));
     syncWL(); syncControls(); renderToolList(); renderNow();
   }
-  window.NavApp = { overlapInfo, useOverlap, cprBeams, useCprAngle, flowAxisAt, loadSession, saveSession, GROUPS, CL_COLOR, Q, mprFrame, applyOrient, resetOrient, alignToCentreline, crossGeom, sliceGeom, S, M, update, onChanged, loadPhantom, demoMarkers, setTab, selectProjection, handleFiles, allMarkers, placeMarker, views, buildSummary, rescan, rerank, selEval, fitViews, renderNow, setVolume };
+  window.NavApp = { overlapInfo, useOverlap, cprBeams, useCprAngle, flowAxisAt, loadSession, saveSession, GROUPS, CL_COLOR, Q, mprFrame, applyOrient, resetOrient, alignToCentreline, crossGeom, sliceGeom, S, M, update, onChanged, loadPhantom, demoMarkers, setTab, selectProjection, handleFiles, allMarkers, placeMarker, views, buildSummary, rescan, rerank, selEval, fitViews, fitView, setZoom, zoomOf, renderNow, setVolume };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();

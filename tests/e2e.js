@@ -118,8 +118,70 @@ async function clickAt(pg, key, P, opts) { await setCross(pg, P); const [x, y] =
   });
   await test('nadir plane / H separations shown in marker summary', async () => { const t = await pg.textContent('#markSummary'); ok(/H angular separations/.test(t) && /Annular \(nadir\) plane/.test(t), t); });
 
+  const tr = {}, zst = {};
+  // ---------- 2b. mouse-only per-view zoom controls (Windows PC without trackpad): − / slider / + / Fit in each MPR title bar ----------
+  await test('ZOOM CONTROLS: Axial/Coronal/Sagittal each have − / slider / + / Fit in the title row (not over the image, no extra height); Cursor panel and other tabs have none', async () => {
+    const r = await pg.evaluate(() => {
+      const bars = [...document.querySelectorAll('#tab-mark .zoombar')].map((z) => { const t = z.closest('.vtitle'), w = z.closest('.vwrap'), c = w.querySelector('canvas'), tb = t.getBoundingClientRect(), cb = c.getBoundingClientRect(), zb = z.getBoundingClientRect();
+        return { view: z.dataset.view, inTitle: !!t, btns: [...z.querySelectorAll('button')].map((b) => b.textContent), slider: !!z.querySelector('input[type=range]'), titleH: tb.height, aboveCanvas: zb.bottom <= cb.top + 0.5, canvasW: cb.width, canvasH: cb.height, bg: getComputedStyle(z.querySelector('button')).backgroundColor }; });
+      return { bars, info: !!document.querySelector('#tab-mark .vwrap.info .zoombar'), others: document.querySelectorAll('.zoombar').length };
+    });
+    ok(r.bars.map((b) => b.view).join() === 'axial,coronal,sagittal', 'views ' + r.bars.map((b) => b.view)); ok(!r.info, 'Cursor panel must not have zoom controls'); ok(r.others === 3, 'zoom bars total ' + r.others);
+    r.bars.forEach((b) => { ok(b.inTitle && b.slider && b.btns.join('|') === '−|+|Fit', b.view + ' controls ' + b.btns); ok(b.titleH <= 24, b.view + ' title row height ' + b.titleH); ok(b.aboveCanvas, b.view + ' controls overlap the image');
+      ok(b.canvasW > 500 && Math.abs(b.canvasW - b.canvasH) < 3, b.view + ' canvas still large+square ' + b.canvasW + 'x' + b.canvasH);
+      const m = b.bg.match(/\d+/g).map(Number); ok(m[0] + m[1] + m[2] < 200, 'dark theme button bg ' + b.bg); });
+  });
+  await test('ZOOM CONTROLS (real mouse): + zooms the axial view ×1.25 about the crosshair (crosshair + markers stay registered, slice/other views unchanged); clicks after zoom map to the right patient position', async () => {
+    await pg.evaluate(() => document.getElementById('cvAxial').scrollIntoView({ block: 'center' }));
+    const st = () => pg.evaluate(() => { const v = NavApp.views, S = NavApp.S, a = v.axial; return { mm: a.mm, cu: a.cu, cv: a.cv, fitMm: a.fitMm, cmm: v.coronal.mm, smm: v.sagittal.mm, cross: S.cross.slice(), cs: a.toScreen(S.cross), hs: ['NL', 'NR', 'LR'].map((k) => a.toScreen(S.m.H[k])), lab: a.zbar.lab.textContent, sl: +a.zbar.inp.value,
+      px: (() => { const c = a.canvas.getContext('2d').getImageData(0, 0, a.W, a.H).data; let h = 0; for (let i = 0; i < c.length; i += 97) h = (h * 31 + c[i]) | 0; return h; })() }; });
+    const s0 = await st(); near(s0.mm, s0.fitMm, 1e-12, 'axial starts at Fit'); ok(s0.lab === '100%', 'label ' + s0.lab); zst.s0 = s0;
+    await pg.click('.zoombar[data-view=axial] [data-z=in]'); await pg.waitForTimeout(80);
+    const s1 = await st();
+    near(s0.mm / s1.mm, 1.25, 1e-9, 'zoom factor'); ok(s1.lab === '125%', 'label ' + s1.lab); near(s1.sl, Math.round(100 * Math.log2(1.25)), 0, 'slider follows');
+    near(s1.cs[0], s0.cs[0], 1e-6, 'crosshair x stays'); near(s1.cs[1], s0.cs[1], 1e-6, 'crosshair y stays');
+    s0.hs.forEach((p, i) => { near(s1.hs[i][0], s0.cs[0] + 1.25 * (p[0] - s0.cs[0]), 1e-6, 'H marker x registered'); near(s1.hs[i][1], s0.cs[1] + 1.25 * (p[1] - s0.cs[1]), 1e-6, 'H marker y registered'); });
+    ok(s1.cross.every((v, i) => v === s0.cross[i]), 'zoom moved the crosshair/slice'); ok(s1.cmm === s0.cmm && s1.smm === s0.smm, 'other views changed zoom'); ok(s1.px !== s0.px, 'axial pixels unchanged after zoom');
+    await pg.click('.zoombar[data-view=axial] [data-z=in]'); await pg.click('.zoombar[data-view=axial] [data-z=in]'); await pg.waitForTimeout(60);
+    const s2 = await st(); near(s0.mm / s2.mm, Math.pow(1.25, 3), 1e-9, '3 clicks'); ok(s2.lab === '195%', 'label ' + s2.lab);
+    await pg.screenshot({ path: path.join(shots, '19_mpr_zoom_controls.png') });
+    // a real Navigate click after zooming lands on the patient position under the mouse
+    await pg.click('[data-tool="nav"]'); const W = [s0.cross[0] + 12, s0.cross[1] - 9, s0.cross[2]];
+    const [x, y] = await screenPos(pg, 'axial', W); await pg.mouse.click(x, y); await pg.waitForTimeout(60);
+    const c = await pg.evaluate(() => NavApp.S.cross.slice()); const d = Math.hypot(c[0] - W[0], c[1] - W[1]); ok(d < 0.25, 'click after zoom off by ' + d.toFixed(3) + ' mm'); near(c[2], W[2], 1e-9, 'axial click keeps z');
+    await setCross(pg, s0.cross);
+  });
+  await test('ZOOM CONTROLS (real mouse): − zooms out; dragging the zoom slider changes zoom (label + px/mm overlay follow); Fit restores the exact fitted zoom AND pan', async () => {
+    const s0 = zst.s0, zl = () => pg.evaluate(() => ({ z: NavApp.zoomOf(NavApp.views.axial), mm: NavApp.views.axial.mm, cu: NavApp.views.axial.cu, cv: NavApp.views.axial.cv, lab: NavApp.views.axial.zbar.lab.textContent }));
+    for (let i = 0; i < 4; i++) await pg.click('.zoombar[data-view=axial] [data-z=out]');
+    await pg.waitForTimeout(60); let z = await zl(); near(z.z, 0.8, 1e-9, 'zoom after 3× + and 4× −'); ok(z.lab === '80%', 'label ' + z.lab);
+    const box = await pg.locator('.zoombar[data-view=axial] input[type=range]').boundingBox(), v0 = await pg.evaluate(() => +NavApp.views.axial.zbar.inp.value);
+    const fx = (v) => box.x + 7 + (box.width - 14) * (v + 100) / 500;          // thumb centre for value v on a -100..400 slider
+    await pg.mouse.move(fx(v0), box.y + box.height / 2); await pg.mouse.down(); for (let i = 1; i <= 8; i++) await pg.mouse.move(fx(v0) + (fx(250) - fx(v0)) * i / 8, box.y + box.height / 2); await pg.mouse.up(); await pg.waitForTimeout(80);
+    z = await zl(); ok(z.z > 4 && z.z < 7.5, 'slider drag zoom ' + z.z.toFixed(2)); ok(z.lab === Math.round(z.z * 100) + '%', 'label ' + z.lab);
+    await pg.click('.zoombar[data-view=axial] [data-z=fit]'); await pg.waitForTimeout(60);
+    z = await zl(); near(z.mm, s0.mm, 1e-12, 'Fit mm'); near(z.cu, s0.cu, 1e-9, 'Fit cu'); near(z.cv, s0.cv, 1e-9, 'Fit cv'); ok(z.lab === '100%', 'label ' + z.lab);
+    // Fit also undoes a pan (shift-drag) and works per view (coronal)
+    const cz = () => pg.evaluate(() => { const v = NavApp.views.coronal; return { mm: v.mm, cu: v.cu, cv: v.cv }; }); const c0 = await cz();
+    await pg.click('.zoombar[data-view=coronal] [data-z=in]'); const cb = await pg.locator('#cvCoronal').boundingBox();
+    await pg.keyboard.down('Shift'); await pg.mouse.move(cb.x + 200, cb.y + 200); await pg.mouse.down(); await pg.mouse.move(cb.x + 260, cb.y + 230, { steps: 4 }); await pg.mouse.up(); await pg.keyboard.up('Shift');
+    const c1 = await cz(); ok(c1.mm < c0.mm && (c1.cu !== c0.cu || c1.cv !== c0.cv), 'coronal zoom+pan'); near((await zl()).mm, s0.mm, 1e-12, 'axial untouched by coronal zoom');
+    await pg.click('.zoombar[data-view=coronal] [data-z=fit]'); await pg.waitForTimeout(60); const c2 = await cz(); near(c2.mm, c0.mm, 1e-12, 'coronal Fit mm'); near(c2.cu, c0.cu, 1e-9); near(c2.cv, c0.cv, 1e-9);
+  });
+  await test('ZOOM: + / − / 0 keys zoom the hovered view; Ctrl+wheel (mouse) / pinch still zooms and the zoom bar follows it (additive, Mac behaviour unchanged)', async () => {
+    await pg.evaluate(() => { const a = document.activeElement; if (a && a.blur) a.blur(); NavApp.views.sagittal.canvas.scrollIntoView({ block: 'center' }); });
+    await pg.waitForTimeout(60);
+    const sb = await pg.locator('#cvSagittal').boundingBox(); await pg.mouse.move(sb.x + sb.width / 2, sb.y + sb.height / 2); await pg.waitForTimeout(40);
+    const sz = () => pg.evaluate(() => ({ z: NavApp.zoomOf(NavApp.views.sagittal), lab: NavApp.views.sagittal.zbar.lab.textContent, sl: +NavApp.views.sagittal.zbar.inp.value, hover: NavApp.S.hover }));
+    ok((await sz()).hover === 'sagittal', 'hover sagittal after move');
+    await pg.keyboard.press('+'); await pg.waitForTimeout(60); near((await sz()).z, 1.25, 1e-9, '+ key'); await pg.keyboard.press('-'); await pg.keyboard.press('-'); await pg.waitForTimeout(60); near((await sz()).z, 0.8, 1e-9, '- key');
+    await pg.keyboard.press('0'); await pg.waitForTimeout(60); near((await sz()).z, 1, 1e-12, '0 key = Fit');
+    await pg.keyboard.down('Control'); await pg.mouse.wheel(0, -120); await pg.keyboard.up('Control'); await pg.waitForTimeout(80);
+    const w = await sz(); ok(w.z > 1.1, 'ctrl+wheel zoom ' + w.z); ok(w.lab === Math.round(w.z * 100) + '%' && w.sl === Math.round(100 * Math.log2(w.z)), 'bar follows wheel zoom ' + JSON.stringify(w));
+    await pg.click('.zoombar[data-view=sagittal] [data-z=fit]'); await pg.waitForTimeout(40); near((await sz()).z, 1, 1e-12, 'Fit after wheel');
+  });
+
   // ---------- 3. transfer ----------
-  const tr = {};
   await test('A markers computed; transferred angle == H angle; A close to analytic ground truth of the phantom', async () => {
     const r = await pg.evaluate((truthIn) => {
       const S = NavApp.S, M = NavApp.M, P = NavPhantom.generate().truth;
@@ -405,8 +467,10 @@ async function clickAt(pg, key, P, opts) { await setCross(pg, P); const [x, y] =
     near(await pgs.evaluate(() => NavApp.views.axial.mm), m0, m0 * 0.02, 'zoom out returns');
   });
   await test('invert-scroll checkbox reverses wheel direction', async () => {
-    const [x, y] = await centre(pgs, 'axial'); await pgs.mouse.move(x, y); const z0 = (await cross(pgs))[2];
-    await pgs.check('#chkInvScroll'); await pgs.mouse.move(x, y); await pgs.mouse.wheel(0, -100); await pgs.waitForTimeout(60); ok((await cross(pgs))[2] < z0, 'direction not reversed'); await pgs.uncheck('#chkInvScroll');
+    let [x, y] = await centre(pgs, 'axial'); await pgs.mouse.move(x, y); const z0 = (await cross(pgs))[2];
+    await pgs.check('#chkInvScroll');                                                          // check() may scroll the Cursor panel into view, moving the canvas
+    ;([x, y] = await centre(pgs, 'axial')); await pgs.mouse.move(x, y); await pgs.mouse.wheel(0, -100); await pgs.waitForTimeout(60);
+    try { ok((await cross(pgs))[2] < z0, 'direction not reversed'); } finally { await pgs.uncheck('#chkInvScroll'); }   // always clear so later wheel tests stay un-inverted
   });
   await test('REAL DICOM path: 500 slices stored head-first (descending IPP + instance numbers) load, k/N correct, wheel-up moves cranially and the image/HU follow the right slice', async () => {
     const sls = [], rows = 160, cols = 160, nz = 500, z0 = 1174.25;

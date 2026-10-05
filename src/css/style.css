@@ -92,3 +92,16 @@ label.rng.compact{margin:4px 0}
 label.rng.compact input[type=range]{accent-color:var(--acc)}
 
 .vwrap.rel{position:relative}.cprOv{position:absolute;right:10px;top:26px;background:rgba(11,15,19,.84);border:1px solid #37474f;border-radius:4px;padding:4px 8px;font:11px/1.35 ui-monospace,Menlo,Consolas,monospace;color:#e0e6ea;pointer-events:none;max-width:46%}.cprOv .cprLv{margin-top:3px;color:#80deea}.cprOv .cprSt{color:#b0bec5}.cprUse{margin-top:4px;align-items:center}
+
+/* Mark tab: per-view zoom controls live in the existing MPR title row (no extra height, nothing drawn over the image) */
+.vtitle.vtbar{display:flex;align-items:center;gap:6px;min-height:0;padding:2px 2px 2px 4px;line-height:18px}
+.vtbar .vtname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.zoombar{display:flex;align-items:center;gap:3px;flex:none}
+.zoombar .zb{background:#1c2630;color:var(--txt);border:1px solid #33424f;border-radius:3px;height:16px;min-width:18px;padding:0 4px;font:600 11px/14px system-ui,sans-serif;cursor:pointer}
+.zoombar .zb:hover:not(:disabled){background:#2a3a49;border-color:var(--acc)}
+.zoombar .zb:disabled{opacity:.35;cursor:default}
+.zoombar .zfit{font-weight:500;font-size:11px}
+.zoombar .zslider{width:72px;height:12px;margin:0 1px;accent-color:var(--acc);cursor:pointer}
+.zoombar .zlab{min-width:40px;text-align:right;color:var(--mut);font-size:11px}
+@container (max-width: 360px){.zoombar .zslider{display:none}}
+.mprGrid .vwrap{container-type:inline-size}

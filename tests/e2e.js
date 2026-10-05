@@ -80,6 +80,31 @@ async function clickAt(pg, key, P, opts) { await setCross(pg, P); const [x, y] =
   await pg.waitForFunction(() => /Loaded 210 slices/.test(document.getElementById('loadStatus').textContent), null, { timeout: 60000 });
   await pg.click('#tabs button[data-tab=mark]');
   const ctrl = truth.demoCtrl().map((p) => p.map((v) => Math.round(v * 10) / 10));
+  await test('Mark tab MPR grid fills the main-panel width (no large vacant gutter on the right): 2x2 cells stretch beyond the old 480 px cap', async () => {
+    // ensure a wide viewport so the old max-480 layout would leave a visible gutter
+    await pg.setViewportSize({ width: 1500, height: 1000 });
+    await pg.waitForTimeout(200);
+    const r = await pg.evaluate(() => {
+      const layout = document.querySelector('#tab-mark .markLayout'), grid = document.querySelector('#tab-mark .mprGrid'), aside = document.getElementById('markPanel');
+      const lr = layout.getBoundingClientRect(), gr = grid.getBoundingClientRect(), ar = aside.getBoundingClientRect();
+      const cells = [...grid.querySelectorAll(':scope > .vwrap')].map((v) => { const b = v.getBoundingClientRect(); return { w: b.width, h: b.height }; });
+      const cs = getComputedStyle(grid), cols = cs.gridTemplateColumns.split(/\s+/).map((x) => parseFloat(x));
+      const canvas = document.getElementById('cvAxial').getBoundingClientRect();
+      return {
+        layoutW: lr.width, gridW: gr.width, asideW: ar.width, gap: lr.right - gr.right,
+        cells, cols, canvasW: canvas.width, canvasH: canvas.height,
+        gridFills: Math.abs(gr.right - lr.right) < 4 && gr.left > ar.right - 2
+      };
+    });
+    ok(r.gridFills, 'grid should reach the right edge of markLayout: gap=' + r.gap.toFixed(1) + ' layoutW=' + r.layoutW.toFixed(0) + ' gridW=' + r.gridW.toFixed(0));
+    ok(r.gap < 8, 'vacant gutter on the right must be < 8 px, got ' + r.gap.toFixed(1));
+    ok(r.cells.length === 4, '2x2 cells');
+    ok(r.cells.every((c) => c.w > 500), 'each cell wider than the old 480 px cap: ' + JSON.stringify(r.cells.map((c) => Math.round(c.w))));
+    ok(r.cols.length === 2 && r.cols.every((c) => c > 500), '1fr columns: ' + r.cols);
+    ok(r.canvasW > 500 && Math.abs(r.canvasW - r.canvasH) < 3, 'axial canvas fills its cell square: ' + r.canvasW + 'x' + r.canvasH);
+    ok(r.asideW >= 280 && r.asideW <= 320, 'sidebar stays ~300 px usable: ' + r.asideW);
+    console.log('       (markLayout ' + Math.round(r.layoutW) + ' px · grid ' + Math.round(r.gridW) + ' px · cell ~' + Math.round(r.cells[0].w) + ' px · right gutter ' + r.gap.toFixed(1) + ' px)');
+  });
   await test('place centreline (17 pts) + H + nadir markers with real mouse clicks on the axial view', async () => {
     await pg.click('[data-tool="cl"]');
     for (const P of ctrl) await clickAt(pg, 'axial', P);

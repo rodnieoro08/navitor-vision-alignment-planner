@@ -29,7 +29,11 @@ main{padding:12px 14px}
 table{border-collapse:collapse;width:100%;font-size:12px}th,td{border-bottom:1px solid var(--line);padding:3px 6px;text-align:left}th{color:var(--mut);font-weight:600}
 tr.sel td{background:#1d3a52}tr.click{cursor:pointer}tr.click:hover td{background:#22303d}
 .markLayout{display:grid;grid-template-columns:300px 1fr;gap:12px;align-items:start}
-.mprGrid{display:grid;grid-template-columns:repeat(2,minmax(300px,480px));gap:10px}
+.mprGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;width:100%;align-items:stretch}
+.mprGrid .vwrap{min-width:0;display:flex;flex-direction:column}
+.mprGrid .vwrap canvas{width:100%;height:auto;aspect-ratio:1/1;max-width:none}
+.mprGrid .vwrap.info{min-height:0}
+.mprGrid .vwrap.info .infobox,.mprGrid .vwrap.info #orientInfo{flex:1}
 .vwrap{background:#0b0f13;border:1px solid var(--line);border-radius:6px;padding:4px}
 .vwrap.info{background:var(--panel);padding:8px}.vwrap.wide{margin-top:8px}
 .vtitle{font-size:12px;color:var(--mut);padding:2px 4px}

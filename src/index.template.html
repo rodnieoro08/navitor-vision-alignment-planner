@@ -130,8 +130,8 @@
       <label class="sel">Radius of A markers <select id="radMode"><option value="keep">as measured for each H</option><option value="mean">mean of H radii</option><option value="fixed">fixed value</option></select></label>
       <label class="rng" id="fixedRow">Fixed radius <input type="number" id="fixedR" min="2" max="40" step="0.5" value="12" style="width:70px"> mm</label>
       <h3>Straightened view</h3>
-      <label class="rng">Cut-plane angle <input type="range" id="cprAngle" min="0" max="359" value="0"><output id="cprAngleO"></output></label>
-      <p class="muted small">Cut-plane angle is measured about the centreline from the RMF reference axis N1. The overlay on the stretched view shows the C-arm angulation (LAO/CRAN positive) of the beams edge-on and face-on to this cut plane.</p>
+      <label class="rng compact" title="Same control as under the stretched view">Cut-plane angle <input type="range" id="cprAngleSide" min="0" max="359" value="0" aria-label="Cut-plane angle (sidebar)"><output id="cprAngleSideO"></output></label>
+      <p class="muted small">Cut-plane angle is measured about the centreline from the RMF reference axis N1. Drag the full-width slider under the stretched view (or this twin) – both stay in sync. The overlay shows the C-arm angulation (LAO/CRAN positive) of the beams edge-on and face-on to this cut plane.</p>
     </aside>
     <div class="tmain">
       <div class="xrow">
@@ -140,6 +140,7 @@
         <div class="vwrap"><canvas id="cvPolar1" width="360" height="400"></canvas></div>
       </div>
       <div class="vwrap wide rel"><div class="vtitle">Stretched (straightened) vessel view – LV apex (left) → descending aorta (right); vertical lines = annulus (orange) and descending (cyan) level</div><canvas id="cvCPR" width="1000" height="260"></canvas><div id="cprReadout" class="cprOv" aria-live="polite"></div>
+        <div class="cprSlider" id="cprSliderBar"><label class="rng cprAngleMain">Cut-plane angle <input type="range" id="cprAngle" min="0" max="359" value="0" aria-label="Cut-plane angle (under stretched view)"><output id="cprAngleO"></output></label></div>
         <div class="btnrow tight cprUse"><button class="btn sm" id="btnCprEdge">Use edge-on angle in C-arm tab</button><button class="btn sm" id="btnCprFace">Use face-on angle in C-arm tab</button><span id="cprUseMsg" class="muted small"></span></div></div>
       <div class="card" id="ovPanel"><h2>Overlap projection (2 right / 1 left)</h2><div id="ovBody"></div></div>
       <div id="transferTable"></div>

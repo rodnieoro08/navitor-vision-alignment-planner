@@ -139,12 +139,29 @@ async function clickAt(pg, key, P, opts) { await setCross(pg, P); const [x, y] =
     ok(/\d+ left \/ \d+ right/.test(t) && /(2:1 ✓|not 2:1)/.test(t), t); ok(await pg.isVisible('#cprReadout'), 'overlay visible');
     await pg.screenshot({ path: path.join(shots, '15_stretched_carm_angulation.png'), fullPage: true });
   });
+  await test('Cut-plane angle primary slider sits under the stretched view (full width); compact sidebar twin stays in sync (one logical control)', async () => {
+    const loc = await pg.evaluate(() => {
+      const under = document.getElementById('cprAngle'), side = document.getElementById('cprAngleSide'), bar = document.getElementById('cprSliderBar');
+      const wrap = document.getElementById('cvCPR').closest('.vwrap');
+      return {
+        underInWrap: !!(under && wrap && wrap.contains(under) && bar && wrap.contains(bar)),
+        underAfterCanvas: !!(under && (under.compareDocumentPosition(document.getElementById('cvCPR')) & Node.DOCUMENT_POSITION_PRECEDING)),
+        underBeforeButtons: !!(under && (under.compareDocumentPosition(document.getElementById('btnCprEdge')) & Node.DOCUMENT_POSITION_FOLLOWING)),
+        sideInAside: !!(side && document.querySelector('#tab-transfer aside.panel').contains(side)),
+        label: bar ? bar.textContent.trim().slice(0, 20) : '',
+        ids: { under: !!under, side: !!side, outU: !!document.getElementById('cprAngleO'), outS: !!document.getElementById('cprAngleSideO') }
+      };
+    });
+    ok(loc.underInWrap && loc.underAfterCanvas && loc.underBeforeButtons, 'primary under stretched view: ' + JSON.stringify(loc));
+    ok(loc.sideInAside && loc.ids.under && loc.ids.side && loc.ids.outU && loc.ids.outS, 'sidebar twin present: ' + JSON.stringify(loc));
+    ok(/Cut-plane angle/.test(loc.label), 'label ' + loc.label);
+  });
   await test('moving the cut-plane slider with REAL keyboard/mouse events changes the overlay live; angles equal the independent maths (edge-on = beam along e, face-on = beam along n) at both levels', async () => {
     const sl = pg.locator('#cprAngle'); await sl.focus(); const seen = new Set();
     seen.add(await cprTxt());
     for (let i = 0; i < 4; i++) { for (let k = 0; k < 25; k++) await pg.keyboard.press('ArrowRight'); seen.add(await cprTxt()); }
     ok(seen.size === 5, 'overlay text should change at each of the 4 slider moves: ' + seen.size);
-    await pg.waitForTimeout(250); const a100 = await pg.evaluate(() => NavApp.S.p.cprAngle); ok(a100 >= 96 && a100 <= 100 && (await pg.textContent('#cprAngleO')) === a100 + '°' && new RegExp('Cut plane ' + a100 + '°').test(await cprTxt()), 'label ' + await pg.textContent('#cprAngleO') + ' / ' + a100);
+    await pg.waitForTimeout(250); const a100 = await pg.evaluate(() => NavApp.S.p.cprAngle); ok(a100 >= 96 && a100 <= 100 && (await pg.textContent('#cprAngleO')) === a100 + '°' && (await pg.textContent('#cprAngleSideO')) === a100 + '°' && +await pg.inputValue('#cprAngleSide') === a100 && new RegExp('Cut plane ' + a100 + '°').test(await cprTxt()), 'under-view + sidebar twin synced at ' + a100 + '° / label ' + await pg.textContent('#cprAngleO'));
     await sl.evaluate((el) => el.scrollIntoView({ block: 'center' })); const box = await sl.boundingBox(); await pg.mouse.click(box.x + box.width * 0.5, box.y + box.height / 2); await pg.waitForTimeout(100);       // click the middle of the track -> ~180°
     const a = await pg.evaluate(() => NavApp.S.p.cprAngle); ok(a > 160 && a < 200, 'slider click -> ' + a);
     // independent check in the page: angles from first principles (no use of cutPlaneBeams)
@@ -163,6 +180,41 @@ async function clickAt(pg, key, P, opts) { await setCross(pg, P); const [x, y] =
     const g = async (al) => { await pg.evaluate((al) => { const el = document.getElementById('cprAngle'); el.value = String(al); el.dispatchEvent(new Event('input', { bubbles: true })); }, al); await pg.waitForTimeout(150); return pg.evaluate(() => { const D = NavApp.cprBeams().levels.desc; return { e: [D.edge.lao, D.edge.cran], f: [D.face.lao, D.face.cran], txt: document.getElementById('cprReadout').textContent }; }); };
     const a = await g(40), b = await g(130), c = await g(300);
     ok(JSON.stringify(a.f) === JSON.stringify(b.e), 'face(40) ' + a.f + ' vs edge(130) ' + b.e); ok(a.txt !== b.txt && b.txt !== c.txt, 'text should change');
+  });
+  await test('under-view Cut-plane slider: drag/set updates overlay, C-arm angulation panel and sidebar twin live; sidebar twin drives the under-view slider too', async () => {
+    const under = pg.locator('#cprAngle'), side = pg.locator('#cprAngleSide');
+    await under.focus();
+    // set via the under-view control (dispatch input as if dragged)
+    await pg.evaluate(() => { const el = document.getElementById('cprAngle'); el.value = '45'; el.dispatchEvent(new Event('input', { bubbles: true })); });
+    await pg.waitForTimeout(250);
+    let st = await pg.evaluate(() => ({ a: NavApp.S.p.cprAngle, u: +document.getElementById('cprAngle').value, s: +document.getElementById('cprAngleSide').value, ou: document.getElementById('cprAngleO').textContent, os: document.getElementById('cprAngleSideO').textContent, ov: document.getElementById('cprReadout').textContent, h: (() => { const d = document.getElementById('cvCPR').getContext('2d').getImageData(0, 0, 100, 60).data; let h = 0; for (let i = 0; i < d.length; i += 17) h = (h * 33 + d[i]) | 0; return h; })() }));
+    ok(st.a === 45 && st.u === 45 && st.s === 45 && st.ou === '45°' && st.os === '45°', 'under-view set -> both synced: ' + JSON.stringify(st));
+    ok(/Cut plane 45°/.test(st.ov) && /Edge-on/.test(st.ov) && /Face-on/.test(st.ov), 'overlay updated: ' + st.ov.slice(0, 120));
+    const hash45 = st.h;
+    // real mouse drag on the under-view slider thumb area (click toward the right end)
+    const box = await under.boundingBox(); ok(box && box.width > 80, 'slider visible under the view');
+    // drag the thumb across the track (more reliable than a single click on some Chrome builds)
+    await pg.mouse.move(box.x + box.width * 0.15, box.y + box.height / 2); await pg.mouse.down();
+    await pg.mouse.move(box.x + box.width * 0.75, box.y + box.height / 2, { steps: 12 }); await pg.mouse.up();
+    await pg.waitForTimeout(350);
+    st = await pg.evaluate(() => ({ a: NavApp.S.p.cprAngle, s: +document.getElementById('cprAngleSide').value, ou: document.getElementById('cprAngleO').textContent, os: document.getElementById('cprAngleSideO').textContent, ov: document.getElementById('cprReadout').textContent, h: (() => { const d = document.getElementById('cvCPR').getContext('2d').getImageData(0, 0, 100, 60).data; let h = 0; for (let i = 0; i < d.length; i += 17) h = (h * 33 + d[i]) | 0; return h; })() }));
+    ok(st.a > 45 && st.a < 320 && st.s === st.a && st.ou === st.a + '°' && st.os === st.a + '°', 'drag under-view -> synced at ' + st.a);
+    ok(new RegExp('Cut plane ' + st.a + '°').test(st.ov), 'overlay follows drag');
+    ok(st.h !== hash45, 'stretched view re-rendered after drag (hash ' + hash45 + ' -> ' + st.h + ')');
+    const afterDrag = st.a;
+    // drive from the sidebar twin
+    await pg.evaluate(() => { const el = document.getElementById('cprAngleSide'); el.value = '120'; el.dispatchEvent(new Event('input', { bubbles: true })); });
+    await pg.waitForTimeout(250);
+    st = await pg.evaluate(() => ({ a: NavApp.S.p.cprAngle, u: +document.getElementById('cprAngle').value, s: +document.getElementById('cprAngleSide').value, ou: document.getElementById('cprAngleO').textContent, os: document.getElementById('cprAngleSideO').textContent, ov: document.getElementById('cprReadout').textContent }));
+    ok(st.a === 120 && st.u === 120 && st.s === 120 && st.ou === '120°' && st.os === '120°', 'sidebar twin drives under-view: ' + JSON.stringify(st));
+    ok(/Cut plane 120°/.test(st.ov), 'overlay follows sidebar'); ok(afterDrag !== 120, 'value actually changed from drag position');
+    // keyboard on the under-view slider
+    await under.focus(); await pg.keyboard.press('ArrowRight'); await pg.keyboard.press('ArrowRight'); await pg.waitForTimeout(200);
+    const aKey = await pg.evaluate(() => NavApp.S.p.cprAngle); ok(aKey === 122, 'ArrowRight on under-view slider -> ' + aKey);
+    ok((await pg.textContent('#cprAngleSideO')) === '122°' && +await pg.inputValue('#cprAngleSide') === 122, 'sidebar twin follows keyboard');
+    await pg.locator('#cprSliderBar').scrollIntoViewIfNeeded(); await pg.screenshot({ path: path.join(shots, '18_cutplane_slider_under_stretched.png'), fullPage: true });
+    // restore 0 for following tests
+    await pg.evaluate(() => { const el = document.getElementById('cprAngle'); el.value = '0'; el.dispatchEvent(new Event('input', { bubbles: true })); });
   });
   await test('"Use edge-on / face-on angle in C-arm tab": selects that projection (1° grid) in the C-arm tab; the C-arm tab evaluation equals the overlay status; out-of-range angles disable the button', async () => {
     const out = [];

@@ -248,6 +248,11 @@ async function clickAt(pg, key, P, opts) { await setCross(pg, P); const [x, y] =
     await pg.screenshot({ path: path.join(shots, '21_selected_projection_bigger.png') });
     await pg.evaluate(() => NavApp.setTab('transfer')); await pg.waitForTimeout(150);
   });
+  await test('Overlap panel: "Use in C-arm tab" buttons are large (16-18 px text, >=40 px tall); disabled ones still look disabled', async () => {
+    const r = await pg.evaluate(() => [...document.querySelectorAll('#ovBody button[data-ovuse]')].map((b) => { const c = getComputedStyle(b), q = b.getBoundingClientRect(); return { fs: parseFloat(c.fontSize), h: q.height, w: q.width, dis: b.disabled, op: parseFloat(c.opacity), cur: parseFloat(getComputedStyle(b.parentElement.querySelector('.ovcur')).fontSize) }; }));
+    ok(r.length >= 1, 'no overlap buttons');
+    r.forEach((b) => { ok(b.fs >= 16 && b.fs <= 18 && b.h >= 40 && b.w >= 150 && b.cur >= 13, JSON.stringify(b)); ok(b.dis ? b.op <= 0.6 : b.op === 1, 'disabled look ' + JSON.stringify(b)); });
+  });
   await test('Cut-plane angle primary slider sits under the stretched view (full width); compact sidebar twin stays in sync (one logical control)', async () => {
     const loc = await pg.evaluate(() => {
       const under = document.getElementById('cprAngle'), side = document.getElementById('cprAngleSide'), bar = document.getElementById('cprSliderBar');

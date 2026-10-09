@@ -226,6 +226,19 @@ async function clickAt(pg, key, P, opts) { await setCross(pg, P); const [x, y] =
     ok(/\d+ left \/ \d+ right/.test(t) && /(2:1 ✓|not 2:1)/.test(t), t); ok(await pg.isVisible('#cprReadout'), 'overlay visible');
     await pg.screenshot({ path: path.join(shots, '15_stretched_carm_angulation.png'), fullPage: true });
   });
+  await test('C-arm angulation panel fills the area beside the stretched view: bottom level with the canvas bottom (±8 px), no clipped overflow, readable font, at 1500x1000 and 1280x800', async () => {
+    for (const [w, h] of [[1280, 800], [1500, 1000]]) {
+      await pg.setViewportSize({ width: w, height: h }); await pg.waitForTimeout(250);
+      const r = await pg.evaluate(() => { const c = document.getElementById('cvCPR').getBoundingClientRect(), el = document.getElementById('cprReadout'), p = el.getBoundingClientRect(), wr = document.getElementById('cprStage').getBoundingClientRect();
+        return { cb: c.bottom, ct: c.top, pb: p.bottom, pt: p.top, pr: p.right, wr: wr.right, pw: p.width, ww: wr.width, sh: el.scrollHeight, ch: el.clientHeight, sw: el.scrollWidth, cw: el.clientWidth, fs: parseFloat(getComputedStyle(el).fontSize), txt: el.textContent }; });
+      ok(Math.abs(r.pb - r.cb) <= 8, w + ': panel bottom ' + r.pb + ' vs canvas bottom ' + r.cb);
+      ok(Math.abs(r.pt - r.ct) <= 8, w + ': panel top ' + r.pt + ' vs canvas top ' + r.ct);
+      ok(Math.abs(r.pr - r.wr) <= 2 && r.pw >= 0.4 * r.ww, w + ': panel uses the right-hand width ' + r.pw + '/' + r.ww);
+      ok(r.sh <= r.ch && r.sw <= r.cw, w + ': clipped overflow ' + JSON.stringify(r));
+      ok(r.fs >= 11, w + ': font ' + r.fs + ' px'); ok(/Descending level/.test(r.txt) && /Annulus level/.test(r.txt), 'content intact');
+    }
+    await pg.locator('#cprStage').scrollIntoViewIfNeeded(); await pg.screenshot({ path: path.join(shots, '20_cprpanel_fill.png') });
+  });
   await test('Cut-plane angle primary slider sits under the stretched view (full width); compact sidebar twin stays in sync (one logical control)', async () => {
     const loc = await pg.evaluate(() => {
       const under = document.getElementById('cprAngle'), side = document.getElementById('cprAngleSide'), bar = document.getElementById('cprSliderBar');

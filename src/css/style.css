@@ -110,3 +110,10 @@ label.rng.compact input[type=range]{accent-color:var(--acc)}
 .zoombar .zlab{min-width:40px;text-align:right;color:var(--mut);font-size:11px}
 @container (max-width: 360px){.zoombar .zslider{display:none}}
 .mprGrid .vwrap{container-type:inline-size}
+
+/* Overlap panel: large primary "Use in C-arm tab" buttons */
+.ovUseRow{align-items:center;gap:12px;margin-top:8px}
+.btn.ovUse{font-size:17px;font-weight:700;min-height:44px;padding:10px 22px;background:#1b5e20;border:1px solid #2e7d32;color:#eafff0;border-radius:8px;box-shadow:0 0 0 1px rgba(0,230,118,.15)}
+.btn.ovUse:hover:not([disabled]){background:#2e7d32;border-color:#00e676}
+.btn.ovUse[disabled]{background:#26323f;border-color:#3a4a5b;color:#90a4ae;box-shadow:none;opacity:.45;cursor:not-allowed}
+.ovUseRow .ovcur{font-size:14px;color:#a5d6a7}

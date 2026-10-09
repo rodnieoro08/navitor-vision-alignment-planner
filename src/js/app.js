@@ -547,7 +547,7 @@
 <div class="ovang"><b${best ? ' class="sugg" title="best suggestion"' : ''}>${esc(it.label)}</b>${it.inRange ? '' : ' <span class="warn">⚠ outside the C-arm range (LAO/RAO ±60°, CRAN/CAUD ±40°)</span>'}</div>
 <div>exact beam: LAO ${f1(it.exactLao)}° / CRAN ${f1(it.exactCran)}° → rounded to the 1° grid (search ±3°)</div>
 <div>overlap residual <b>${it.residual.toFixed(2)} mm</b>${it.overlapOk ? '' : ' <span class="warn">(> 1 mm)</span>'} · lone marker ${esc(it.loneName)} is <b>${f1(it.separation)} mm</b> from the pair (${f1(it.lateral)} mm to the image left) · range: ${it.inRange ? '<span style="color:var(--ok)">✔ within</span>' : '<span class="warn">✖ outside</span>'}</div>
-<div class="btnrow tight"><button class="btn sm" data-ovuse="${it.rank}" ${it.inRange ? '' : 'disabled'} title="${it.inRange ? 'Select ' + esc(it.label) + ' in the C-arm tab' : 'outside the C-arm tab range'}">Use in C-arm tab</button><span class="muted small ovcur">${cur ? '✓ currently selected in the C-arm tab' : ''}</span></div></div></div>`;
+<div class="btnrow tight ovUseRow"><button class="btn ovUse" data-ovuse="${it.rank}" ${it.inRange ? '' : 'disabled'} title="${it.inRange ? 'Select ' + esc(it.label) + ' in the C-arm tab' : 'outside the C-arm tab range'}">Use in C-arm tab</button><span class="muted small ovcur">${cur ? '✓ currently selected in the C-arm tab' : ''}</span></div></div></div>`;
     });
     ov.rejected.forEach((r) => { h += `<div class="ovrej muted">✖ not offered – ${esc(r.detail)}</div>`; });
     body.innerHTML = h;

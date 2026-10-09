@@ -239,6 +239,15 @@ async function clickAt(pg, key, P, opts) { await setCross(pg, P); const [x, y] =
     }
     await pg.locator('#cprStage').scrollIntoViewIfNeeded(); await pg.screenshot({ path: path.join(shots, '20_cprpanel_fill.png') });
   });
+  await test('C-arm tab: Selected projection heading/labels/inputs enlarged (18-20 px text, >=90x38 px inputs), green result >= 26 px', async () => {
+    await pg.evaluate(() => NavApp.setTab('carm')); await pg.waitForTimeout(150);
+    const r = await pg.evaluate(() => { const fs = (e) => parseFloat(getComputedStyle(e).fontSize), hd = document.getElementById('selLao').closest('.card').querySelector('h2'), lb = document.getElementById('selLao').closest('label'), a = document.getElementById('selLao').getBoundingClientRect(), c = document.getElementById('selCran').getBoundingClientRect();
+      return { h: fs(hd), l: fs(lb), i: fs(document.getElementById('selLao')), a: [a.width, a.height], c: [c.width, c.height], big: fs(document.getElementById('selBig')), bg: getComputedStyle(document.getElementById('selLao')).backgroundColor }; });
+    ok(r.h >= 18 && r.l >= 18 && r.i >= 18, JSON.stringify(r)); ok(r.a[0] >= 90 && r.a[1] >= 38 && r.c[0] >= 90 && r.c[1] >= 38, 'input size ' + JSON.stringify(r));
+    ok(r.big >= 26, 'result font ' + r.big); ok(r.bg === 'rgb(18, 24, 31)', 'dark input ' + r.bg);
+    await pg.screenshot({ path: path.join(shots, '21_selected_projection_bigger.png') });
+    await pg.evaluate(() => NavApp.setTab('transfer')); await pg.waitForTimeout(150);
+  });
   await test('Cut-plane angle primary slider sits under the stretched view (full width); compact sidebar twin stays in sync (one logical control)', async () => {
     const loc = await pg.evaluate(() => {
       const under = document.getElementById('cprAngle'), side = document.getElementById('cprAngleSide'), bar = document.getElementById('cprSliderBar');

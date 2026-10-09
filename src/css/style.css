@@ -91,7 +91,10 @@ footer{padding:10px 14px;color:var(--mut);font-size:11px;border-top:1px solid va
 label.rng.compact{margin:4px 0}
 label.rng.compact input[type=range]{accent-color:var(--acc)}
 
-.vwrap.rel{position:relative}.cprOv{position:absolute;right:10px;top:26px;background:rgba(11,15,19,.84);border:1px solid #37474f;border-radius:4px;padding:4px 8px;font:11px/1.35 ui-monospace,Menlo,Consolas,monospace;color:#e0e6ea;pointer-events:none;max-width:46%}.cprOv .cprLv{margin-top:3px;color:#80deea}.cprOv .cprSt{color:#b0bec5}.cprUse{margin-top:4px;align-items:center}
+.vwrap.rel{position:relative}.cprStage{position:relative}.cprStage canvas{display:block}
+/* C-arm angulation panel: fills the stage from the canvas top to its bottom (= the slider) and the free width on the right; JS (fitCprPanel) sets width + the largest font that fits */
+.cprOv{position:absolute;right:0;top:0;bottom:0;box-sizing:border-box;width:42%;overflow:hidden;background:rgba(11,15,19,.9);border:1px solid #37474f;border-radius:4px;padding:5px 9px;font:11px/1.25 ui-monospace,Menlo,Consolas,monospace;color:#e0e6ea;pointer-events:none;overflow-wrap:anywhere}.cprOv.two .cprCols{display:grid;grid-template-columns:1fr 1fr;column-gap:12px}.cprOv .cprCol>div{margin-bottom:2px}
+.cprOv .cprLv{margin-top:3px;color:#80deea}.cprOv .cprSt{color:#b0bec5}.cprUse{margin-top:4px;align-items:center}
 
 /* Mark tab: per-view zoom controls live in the existing MPR title row (no extra height, nothing drawn over the image) */
 .vtitle.vtbar{display:flex;align-items:center;gap:6px;min-height:0;padding:2px 2px 2px 4px;line-height:18px}

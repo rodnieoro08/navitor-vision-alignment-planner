@@ -481,20 +481,33 @@
   function renderCPRReadout() {
     const el = $('cprReadout'), info = cprBeams(), bE = $('btnCprEdge'), bF = $('btnCprFace');
     if (!info) { el.textContent = 'C-arm angulation of the cut plane: needs a centreline'; bE.disabled = bF.disabled = true; $('cprUseMsg').textContent = ''; return; }
-    let h = `<b>Cut plane ${info.alpha}° → C-arm angulation</b> (beam ⟂ centreline at each level)`;
+    let h = `<div class="cprHd"><b>Cut plane ${info.alpha}° → C-arm angulation</b> (beam ⟂ centreline at each level)</div><div class="cprCols">`;
     for (const key of ['desc', 'ann']) {
       const L = info.levels[key]; if (!L) continue;
-      h += `<div class="cprLv">${L.name} (s = ${f1(L.s)} mm, ${key === 'desc' ? 'A' : 'H'} markers)</div>`;
+      h += `<div class="cprCol"><div class="cprLv">${L.name} (s = ${f1(L.s)} mm, ${key === 'desc' ? 'A' : 'H'} markers)</div>`;
       for (const [kind, lab] of [['edge', 'Edge-on (beam in plane)'], ['face', 'Face-on (beam ⟂ plane)']]) {
         const b = L[kind]; h += `<div>${lab}: <b>${b.label}</b>${b.inRange ? '' : ' <span class="warn">(outside ±60° / ±40° C-arm range)</span>'}<br><span class="cprSt">${beamStatusText(b.status)}</span></div>`;
       }
+      h += '</div>';
     }
-    el.innerHTML = h;
+    el.innerHTML = h + '</div>'; fitCprPanel();
     const D = info.levels.desc;
     [[bE, 'edge'], [bF, 'face']].forEach(([b, kind]) => { b.disabled = !D || !D[kind].inRange; b.title = !D ? 'needs a descending level' : D[kind].inRange ? `Select ${D[kind].label} (${kind}-on, descending level) in the C-arm tab` : 'outside the C-arm tab range (LAO/RAO ±60°, CRAN/CAUD ±40°)'; });
     const cur = D && S.sel ? ['edge', 'face'].filter((k) => D[k].lao === S.sel.lao && D[k].cran === S.sel.cran) : [];
     $('cprUseMsg').textContent = cur.length ? `✓ ${cur.join(' / ')}-on angle of the descending level is the projection currently selected in the C-arm tab` : '';
   }
+  // Panel fills the free space right of the stretched canvas (at least 42% of the stage), full canvas height; font = largest size (11-22 px) with no overflow.
+  function fitCprPanel() {
+    const el = $('cprReadout'), st = $('cprStage'), cv = $('cvCPR'); if (!el || !st || !cv || !st.clientWidth) return;
+    const W = st.clientWidth, free = W - cv.getBoundingClientRect().width;
+    el.style.width = Math.round(Math.min(W, Math.max(free, 0.42 * W, 240))) + 'px';
+    const fits = () => el.scrollHeight <= el.clientHeight && el.scrollWidth <= el.clientWidth;
+    const best = (two) => { el.classList.toggle('two', two); let lo = 8, hi = 22; el.style.fontSize = hi + 'px'; if (fits()) return hi;
+      while (hi - lo > 0.25) { const m = (lo + hi) / 2; el.style.fontSize = m + 'px'; if (fits()) lo = m; else hi = m; } return lo; };
+    const f1c = best(false), f2c = el.querySelector('.cprCols') ? best(true) : 0, two = f2c > f1c;
+    el.classList.toggle('two', two); el.style.fontSize = (two ? f2c : f1c) + 'px';
+  }
+  window.addEventListener('resize', () => fitCprPanel()); if (window.ResizeObserver && document.getElementById('cprStage')) new ResizeObserver(() => fitCprPanel()).observe(document.getElementById('cprStage'));
   function useCprAngle(kind) {
     const info = cprBeams(), D = info && info.levels.desc; if (!D || !D[kind].inRange) return null;
     selectProjection(D[kind].lao, D[kind].cran, true); return { lao: D[kind].lao, cran: D[kind].cran };
